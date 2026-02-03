@@ -683,7 +683,10 @@ function buildRows(records){
       problema,
       solucao
     };
-  }).filter(x=>x.number);
+  }).filter(x => {
+    // Keep if valid number AND does NOT contain the word "OT" in short description
+    return x.number && !/\bOT\b/i.test(x.short || '');
+  });
 }
 
 function deduplicate(rows){
