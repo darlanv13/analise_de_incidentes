@@ -6,18 +6,18 @@
   <title>Dashboard – BRCKSFMW140RPTOPO (v2)</title>
   <style>
     :root{
-      --bg:#0b1220; --card:#111a2e; --muted:#9fb3c8; --txt:#e9f1ff;
-      --accent:#4ea1ff; --ok:#34d399; --warn:#ffb020; --bad:#fb7185; --border:rgba(255,255,255,.12);
+      --bg:#121212; --card:#1e1e1e; --muted:#9fb3c8; --txt:#e9f1ff;
+      --accent:#007E7A; --ok:#007E7A; --warn:#F0B323; --bad:#D9534F; --border:rgba(255,255,255,.12);
       --mono: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
     }
-    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#060b15,#0b1220);color:var(--txt)}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;background:linear-gradient(180deg,#0a0a0a,#121212);color:var(--txt)}
     .wrap{max-width:1280px;margin:0 auto;padding:22px}
     header{display:flex;gap:14px;justify-content:space-between;align-items:flex-start;flex-wrap:wrap}
     h1{margin:0;font-size:22px}
     .subtitle{color:var(--muted);margin-top:6px;line-height:1.35}
     .badge{display:inline-block;padding:6px 10px;border:1px solid var(--border);border-radius:999px;color:var(--muted);font-size:12px;margin:8px 8px 0 0}
     .grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin-top:14px}
-    .card{background:rgba(17,26,46,.80);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:0 12px 32px rgba(0,0,0,.25)}
+    .card{background:rgba(30,30,30,.80);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:0 4px 6px rgba(0,0,0,.3)}
     .card h2{margin:0 0 10px;font-size:14px;color:#cfe2ff;font-weight:650}
     .kpi{display:flex;align-items:baseline;justify-content:space-between}
     .kpi .v{font-size:26px;font-weight:800}
@@ -152,6 +152,18 @@
       <div class="small">Extraído do close_notes (Problema/Solução). Clique em uma célula para filtrar.</div>
     </div>
 
+    <!-- New Sections -->
+    <div class="card" style="grid-column:span 6">
+      <h2>Análise de Recorrência de Ativos (Top 10)</h2>
+      <canvas id="cAsset"></canvas>
+      <div class="small">Ativos com maior volume de incidentes no período selecionado.</div>
+    </div>
+
+    <div class="card" style="grid-column:span 6">
+      <h2>Sugestões Proativas PRB</h2>
+      <div id="prbList" class="small" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto"></div>
+    </div>
+
     <div class="card" style="grid-column:span 12">
       <h2>Linha do tempo (últimos eventos)</h2>
       <div id="timeline" class="callout"></div>
@@ -250,6 +262,10 @@ const Z = {
     return `${h}h ${m}m`;
   },
   mean: (a) => { a=a.filter(x=>isFinite(x)); return a.length ? a.reduce((s,x)=>s+x,0)/a.length : NaN; },
+  escape: (s) => {
+    if(!s || typeof s !== 'string') return '';
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  },
   quantile: (a,q) => {
     a=a.filter(x=>isFinite(x)).slice().sort((x,y)=>x-y);
     if(!a.length) return NaN;
@@ -296,6 +312,17 @@ function extractAirInterface(text){
   if(!text || typeof text !== 'string') return null;
   const m = text.match(/Air Interface\s+(\d+)/i);
   return m ? m[1] : null;
+}
+function extractAsset(text){
+  if(!text || typeof text !== 'string') return null;
+  // Matches "Equipment: XXX" or "[N2 TASK] XXX :" or similar patterns
+  let m = text.match(/Equipment:\s*([^\s]+)/i);
+  if(m) return m[1];
+  m = text.match(/\[N2 TASK\]\s*([^:\s]+)/i);
+  if(m) return m[1];
+  m = text.match(/Configuration Item:\s*([^\s]+)/i);
+  if(m) return m[1];
+  return null;
 }
 function classifyAlarm(sd, desc){
   const t = ((sd||'')+' '+(desc||'')).toLowerCase();
@@ -499,6 +526,7 @@ function buildRows(records){
     const action = classifyResolution(closeNotes);
     const link = extractZabbixLink(desc) || extractZabbixLink(ttn) || extractZabbixLink(tte);
     const zpid = extractProblemId(desc) || extractProblemId(ttn) || extractProblemId(tte);
+    const asset = extractAsset(sd) || extractAsset(desc) || extractAsset(ttn) || extractAsset(tte) || 'Desconhecido';
 
     const fields = parseCloseNotesFields(closeNotes);
     const problema = fields['Problema'] || '';
@@ -506,6 +534,7 @@ function buildRows(records){
 
     return {
       number: Z.safe(r,'number',''),
+      asset,
       eventTime,
       month: eventTime ? `${eventTime.getFullYear()}-${String(eventTime.getMonth()+1).padStart(2,'0')}` : '',
       alarm,
@@ -609,6 +638,59 @@ function buildMatrix(rows){
   return {p, s, mat};
 }
 
+function analyzeAssetRecurrence(rows){
+  const counts = countsBy(rows, 'asset').filter(x=>x[0]!=='Desconhecido');
+  return counts.slice(0, 10); // Top 10
+}
+
+function analyzeProactivePRB(rows){
+  const suggestions = [];
+  // 1. Check for recurrence: Asset + Alarm > 3 times
+  const groups = new Map();
+  rows.forEach(r=>{
+    if(!r.asset || r.asset==='Desconhecido') return;
+    const k = `${r.asset}|${r.alarm}`;
+    groups.set(k, (groups.get(k)||0)+1);
+  });
+
+  [...groups.entries()].sort((a,b)=>b[1]-a[1]).forEach(([k, count])=>{
+    if(count > 3){
+      const [asset, alarm] = k.split('|');
+      suggestions.push(`Recorrência Crítica: O ativo <b>${Z.escape(asset)}</b> apresentou o alarme "<b>${Z.escape(alarm)}</b>" ${count} vezes. Investigar causa raiz.`);
+    }
+  });
+
+  // 2. Check for chronic issues based on keywords
+  const keywords = [
+    {word: 'energy', label: 'Energia/Alimentação', advice: 'Verificar retificadores e bancos de bateria.'},
+    {word: 'temperature', label: 'Temperatura', advice: 'Verificar sistema de climatização/ar-condicionado.'},
+    {word: 'crc', label: 'Erros de CRC/Cabo', advice: 'Verificar cabeamento e conectores físicos.'},
+    {word: 'duplex', label: 'Duplex Mismatch', advice: 'Verificar negociação de porta e configurações de velocidade.'}
+  ];
+
+  const chronicAssets = new Map();
+  rows.forEach(r=>{
+    if(!r.asset || r.asset==='Desconhecido') return;
+    const txt = (r.short+' '+r.closeNotes).toLowerCase();
+    keywords.forEach(kw=>{
+      if(txt.includes(kw.word)){
+        const k = `${r.asset}|${kw.label}`;
+        if(!chronicAssets.has(k)) chronicAssets.set(k, {count:0, advice: kw.advice});
+        chronicAssets.get(k).count++;
+      }
+    });
+  });
+
+  [...chronicAssets.entries()].forEach(([k, val])=>{
+    if(val.count > 2){
+      const [asset, label] = k.split('|');
+      suggestions.push(`Problema Crônico: O ativo <b>${Z.escape(asset)}</b> tem indícios de problemas de <b>${Z.escape(label)}</b> (${val.count} ocorrências). Sugestão: ${val.advice}`);
+    }
+  });
+
+  return suggestions.slice(0, 8); // Limit to 8 suggestions
+}
+
 /* ====== Render ====== */
 function setFMDS(rows, metrics){
   const first = rows.filter(r=>r.eventTime).sort((a,b)=>a.eventTime-b.eventTime)[0]?.eventTime;
@@ -702,6 +784,16 @@ function render(){
 
   const mx = buildMatrix(VIEW);
   matrixChart(document.getElementById('cMatrix'), mx.p, mx.s, mx.mat);
+
+  // Asset Recurrence Chart
+  const assetRec = analyzeAssetRecurrence(VIEW);
+  hbarChart(document.getElementById('cAsset'), assetRec.map(x=>x[0]), assetRec.map(x=>x[1]), {color:'#D9534F'});
+
+  // PRB Suggestions
+  const suggestions = analyzeProactivePRB(VIEW);
+  const prbEl = document.getElementById('prbList');
+  if(!suggestions.length) prbEl.innerHTML = '<span class="muted">Nenhuma sugestão encontrada para o filtro atual.</span>';
+  else prbEl.innerHTML = suggestions.map(s=>`<div class="callout" style="border-left-color:var(--warn);background:rgba(240,179,35,.1)">${s}</div>`).join('');
 
   // Filters selects
   fillSelect('fAlarm', uniq(base.map(x=>x.alarm)));
