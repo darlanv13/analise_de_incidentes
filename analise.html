@@ -100,21 +100,21 @@
     .fmds-layout {
       position: absolute; top: -9999px; left: -9999px; /* Off-screen */
       width: 1500px; /* High res for capture */
-      background: #fff; color: #333;
+      background: #121212; color: #e9f1ff; /* Dark Theme */
       font-family: 'Segoe UI', sans-serif;
       display: grid;
       grid-template-rows: auto 1fr;
       gap: 0;
-      border: 1px solid #ccc;
+      border: 1px solid #333;
     }
     .fmds-header {
-      background: #777; /* Gray bar */
+      background: #1e1e1e;
       display: grid;
       grid-template-columns: 3fr 1fr;
       color: #fff;
     }
     .fmds-title-bar {
-      background: #333; /* Vale Dark Gray */
+      background: #000;
       padding: 12px 24px;
       font-size: 26px; font-weight: 400; letter-spacing: 0.5px;
       border-bottom: 4px solid #F0B323; /* Vale Gold Accent */
@@ -127,17 +127,18 @@
     }
     .fmds-body {
       padding: 15px;
-      background: #eee;
+      background: #0a0a0a;
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr 1fr; /* 50/50 Split */
       gap: 15px;
     }
     .fmds-panel {
-      background: #fff;
-      border: 2px solid #005a57;
+      background: #1e1e1e;
+      border: 2px solid #333;
       border-radius: 8px;
       overflow: hidden;
       display: flex; flex-direction: column;
+      margin-bottom: 15px;
     }
     .fmds-panel-head {
       background: #007E7A; color: #fff;
@@ -151,7 +152,7 @@
     }
     .fmds-chart-row {
       height: 220px; position: relative;
-      border: 1px solid #ddd; background: #fff;
+      border: 1px solid #333; background: #1e1e1e;
       margin-bottom: 10px;
     }
     .fmds-kpi-row {
@@ -172,15 +173,15 @@
       width: 100%; border-collapse: collapse;
       font-size: 11px;
     }
-    .fmds-table th { background: #000; color: #fff; padding: 4px; text-align: left; }
-    .fmds-table td { border: 1px solid #ccc; padding: 4px; vertical-align: middle; }
-    .fmds-table tr:nth-child(even) { background: #f2f2f2; }
+    .fmds-table th { background: #000; color: #F0B323; padding: 6px; text-align: left; border-bottom: 2px solid #333; }
+    .fmds-table td { border: 1px solid #333; padding: 6px; vertical-align: middle; color: #e9f1ff; }
+    .fmds-table tr:nth-child(even) { background: #252525; }
     .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; }
     .dot-red { background: #d9534f; }
     .dot-green { background: #5cb85c; }
 
-    .fmds-col-right .fmds-panel { height: 100%; }
     .action-green { color: #007E7A; font-weight: bold; }
+    .legend-box { padding:10px; display:flex; gap:15px; font-size:11px; align-items:center; background:#1e1e1e; border-top:1px solid #333; color:#ccc; }
   </style>
 </head>
 <body>
@@ -362,14 +363,14 @@
   </div>
 
   <div class="fmds-body">
-    <!-- Left Column -->
-    <div style="display:flex; flex-direction:column; gap:10px">
+    <!-- Left Column: Acompanhamento + Repetibilidade -->
+    <div style="display:flex; flex-direction:column; gap:15px">
       <!-- Incidents Tracking -->
       <div class="fmds-panel">
         <div class="fmds-panel-head">Acompanhamento dos incidentes</div>
         <div class="fmds-panel-content">
           <div class="fmds-chart-row">
-            <div style="position:absolute;top:5px;left:10px;font-size:12px;color:#666">CONTROLE DE EVENTOS</div>
+            <div style="position:absolute;top:5px;left:10px;font-size:12px;color:#9fb3c8">CONTROLE DE EVENTOS</div>
             <div style="width:100%;height:100%"><canvas id="cFmdsTrend"></canvas></div>
           </div>
 
@@ -382,40 +383,32 @@
           </div>
 
           <div class="fmds-sub-charts">
-            <div style="border:1px solid #ddd; padding:5px; position:relative">
-              <div style="font-size:10px;margin-bottom:5px;color:#666">QUANTIDADE DE INCIDENTES POR SITE</div>
+            <div style="border:1px solid #333; padding:5px; position:relative">
+              <div style="font-size:10px;margin-bottom:5px;color:#9fb3c8">QUANTIDADE DE INCIDENTES POR SITE</div>
               <div style="height:140px;width:100%"><canvas id="cFmdsSite"></canvas></div>
             </div>
-            <div style="border:1px solid #ddd; padding:5px; position:relative">
-              <div style="font-size:10px;margin-bottom:5px;color:#666">QUANTIDADE DE INCIDENTES POR CATEGORIA DE ATIVO</div>
+            <div style="border:1px solid #333; padding:5px; position:relative">
+              <div style="font-size:10px;margin-bottom:5px;color:#9fb3c8">QUANTIDADE DE INCIDENTES POR CATEGORIA DE ATIVO</div>
               <div style="height:140px;width:100%"><canvas id="cFmdsCat"></canvas></div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Recurrence -->
+      <!-- Repetibilidade -->
       <div class="fmds-panel">
-        <div class="fmds-panel-head" style="background:#fff; color:#000; border-bottom:2px solid #007E7A; padding:5px">RECORRÊNCIA POR ATIVO</div>
-        <div class="fmds-panel-content" style="padding:0">
-          <table class="fmds-table">
-            <thead>
-              <tr style="background:#007E7A"><th>Ativo</th><th>Nº de INCs</th><th>EOS</th></tr>
-            </thead>
-            <tbody id="tFmdsRec"></tbody>
+        <div class="fmds-panel-head">Repetibilidade / PRB Proativo</div>
+        <div class="fmds-panel-content" style="padding:0; overflow:hidden">
+           <table class="fmds-table">
+            <thead><tr><th width="20%">ATIVO</th><th>Descrição</th><th width="20%">Ação</th></tr></thead>
+            <tbody id="tFmdsRep"></tbody>
           </table>
-          <!-- Legend -->
-          <div style="padding:10px; display:flex; gap:15px; font-size:11px; align-items:center; background:#fff">
-            <strong>Legenda EOS</strong>
-            <div style="display:flex;align-items:center;gap:4px"><span class="status-dot dot-green"></span> Fim em > 2 anos</div>
-            <div style="display:flex;align-items:center;gap:4px"><span class="status-dot dot-red"></span> Sem suporte</div>
-          </div>
         </div>
       </div>
     </div>
 
-    <!-- Right Column -->
-    <div class="fmds-col-right" style="display:flex; flex-direction:column; gap:10px">
+    <!-- Right Column: Analise + Recorrencia -->
+    <div style="display:flex; flex-direction:column; gap:15px">
       <!-- INC Analysis -->
       <div class="fmds-panel">
         <div class="fmds-panel-head">Analise de INC</div>
@@ -427,14 +420,22 @@
         </div>
       </div>
 
-      <!-- Repetibilidade -->
-      <div class="fmds-panel" style="flex:1">
-        <div class="fmds-panel-head">Repetibilidade</div>
-        <div class="fmds-panel-content" style="padding:0; overflow:hidden">
-           <table class="fmds-table">
-            <thead><tr><th width="20%">ATIVO</th><th>Descrição</th><th width="20%">Ação</th></tr></thead>
-            <tbody id="tFmdsRep"></tbody>
+      <!-- Recurrence (Moved here, below Analysis) -->
+      <div class="fmds-panel">
+        <div class="fmds-panel-head">Recorrência por Ativo (Top 5)</div>
+        <div class="fmds-panel-content" style="padding:0">
+          <table class="fmds-table">
+            <thead>
+              <tr><th>Ativo</th><th>Nº de INCs</th><th>EOS</th></tr>
+            </thead>
+            <tbody id="tFmdsRec"></tbody>
           </table>
+          <!-- Legend -->
+          <div class="legend-box">
+            <strong>Legenda EOS</strong>
+            <div style="display:flex;align-items:center;gap:4px"><span class="status-dot dot-green"></span> Fim em > 2 anos</div>
+            <div style="display:flex;align-items:center;gap:4px"><span class="status-dot dot-red"></span> Sem suporte</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1035,8 +1036,8 @@ function renderFMDS(rows){
     datasets: [{ data: cats.values, backgroundColor: '#007E7A' }]
   }, { indexAxis: 'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{display:false}} });
 
-  // 5. Recurrence Table
-  const rec = analyzeAssetRecurrence(rows).slice(0, 8);
+  // 5. Recurrence Table (Top 5)
+  const rec = analyzeAssetRecurrence(rows).slice(0, 5);
   const tRec = document.getElementById('tFmdsRec');
   tRec.innerHTML = rec.map(([asset, count])=>`
     <tr>
@@ -1059,8 +1060,12 @@ function renderFMDS(rows){
   const suggestions = analyzeProactivePRB(rows).slice(0,4);
   const tRep = document.getElementById('tFmdsRep');
   tRep.innerHTML = suggestions.map(s=>{
-    const mAsset = s.match(/<b>(.*?)<\/b>/);
-    const asset = mAsset ? mAsset[1] : '—';
+    // Asset is usually the second bold tag (Label is first)
+    const matches = s.match(/<b>(.*?)<\/b>/g);
+    let asset = '—';
+    if(matches && matches.length >= 2) asset = matches[1].replace(/<\/?b>/g, '');
+    else if(matches && matches.length === 1) asset = matches[0].replace(/<\/?b>/g, '');
+
     const desc = s.replace(/<[^>]*>/g, '');
     return `
     <tr>
