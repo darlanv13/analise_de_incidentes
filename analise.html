@@ -35,16 +35,19 @@
     .drop-zone {
       border: 2px dashed var(--border);
       border-radius: 12px;
-      padding: 20px;
+      padding: 24px;
       text-align: center;
       color: var(--muted);
-      background: rgba(7,12,24,.3);
+      background: linear-gradient(135deg, rgba(7,12,24,0.4), rgba(30,30,30,0.4));
       cursor: pointer;
-      transition: all 0.2s;
+      transition: all 0.3s ease;
       flex: 1 1 100%;
       margin-bottom: 12px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
     }
-    .drop-zone.dragover { border-color: var(--accent); background: rgba(0,126,122,0.1); color: var(--txt); }
+    .drop-zone:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,126,122,0.05); }
+    .drop-zone.dragover { border-color: var(--accent); background: rgba(0,126,122,0.15); color: var(--txt); transform: scale(1.01); }
+    .drop-zone i { font-size: 24px; margin-bottom: 4px; }
     input[type=search], select, button, input[type=date]{
       background:rgba(7,12,24,.55);border:1px solid var(--border);color:var(--txt);
       padding:10px 12px;border-radius:10px;outline:none
@@ -111,14 +114,16 @@
       color: #fff;
     }
     .fmds-title-bar {
-      background: #777;
-      padding: 10px 20px;
-      font-size: 24px; font-weight: 300;
+      background: #333; /* Vale Dark Gray */
+      padding: 12px 24px;
+      font-size: 26px; font-weight: 400; letter-spacing: 0.5px;
+      border-bottom: 4px solid #F0B323; /* Vale Gold Accent */
     }
     .fmds-date-bar {
       background: #007E7A; /* Vale Teal */
       display: flex; align-items: center; justify-content: center;
-      font-size: 20px; font-weight: bold;
+      font-size: 20px; font-weight: 700;
+      box-shadow: inset 5px 0 10px rgba(0,0,0,0.1);
     }
     .fmds-body {
       padding: 15px;
@@ -135,9 +140,9 @@
       display: flex; flex-direction: column;
     }
     .fmds-panel-head {
-      background: #005a57; color: #fff;
-      text-align: center; padding: 8px;
-      font-size: 18px; font-weight: bold;
+      background: #007E7A; color: #fff;
+      text-align: center; padding: 10px;
+      font-size: 16px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
     }
     .fmds-panel-content {
       padding: 10px;
@@ -194,7 +199,8 @@
 
       <div class="toolbar" style="margin-top:12px">
         <div id="dropZone" class="drop-zone">
-          Arraste o arquivo <b>incident.json</b> aqui ou clique para selecionar
+          <div style="font-size:16px;font-weight:600">📂 Upload de Dados</div>
+          <div style="font-size:13px">Arraste o arquivo <b>incident.json</b> aqui ou clique para selecionar</div>
         </div>
         <input id="file" type="file" accept=".json" style="display:none" />
 
@@ -846,50 +852,83 @@ function analyzeHeatmap(rows){
 
 function analyzeProactivePRB(rows){
   const suggestions = [];
-  // 1. Check for recurrence: Asset + Alarm > 3 times
-  const groups = new Map();
-  rows.forEach(r=>{
-    if(!r.asset || r.asset==='Desconhecido') return;
-    const k = `${r.asset}|${r.alarm}`;
-    groups.set(k, (groups.get(k)||0)+1);
+
+  // Group rows by asset
+  const byAsset = new Map();
+  rows.forEach(r => {
+    if(!r.asset || r.asset === 'Desconhecido') return;
+    if(!byAsset.has(r.asset)) byAsset.set(r.asset, []);
+    byAsset.get(r.asset).push(r);
   });
 
-  [...groups.entries()].sort((a,b)=>b[1]-a[1]).forEach(([k, count])=>{
-    if(count > 3){
-      const [asset, alarm] = k.split('|');
-      suggestions.push(`Recorrência Crítica: O ativo <b>${Z.escape(asset)}</b> apresentou o alarme "<b>${Z.escape(alarm)}</b>" ${count} vezes. Investigar causa raiz.`);
+  // Analyze per asset
+  byAsset.forEach((events, asset) => {
+    // Sort by time
+    events.sort((a,b) => (a.eventTime||0) - (b.eventTime||0));
+
+    // 1. Recurrence (High Volume)
+    if(events.length > 3) {
+      const topAlarm = countsBy(events, 'alarm')[0];
+      if(topAlarm) {
+        suggestions.push(`<b>Volume Elevado:</b> O ativo <b>${Z.escape(asset)}</b> gerou ${events.length} incidentes (principal: ${Z.escape(topAlarm[0])}). Possível degradação sistêmica.`);
+      }
     }
-  });
 
-  // 2. Check for chronic issues based on keywords
-  const keywords = [
-    {word: 'energy', label: 'Energia/Alimentação', advice: 'Verificar retificadores e bancos de bateria.'},
-    {word: 'temperature', label: 'Temperatura', advice: 'Verificar sistema de climatização/ar-condicionado.'},
-    {word: 'crc', label: 'Erros de CRC/Cabo', advice: 'Verificar cabeamento e conectores físicos.'},
-    {word: 'duplex', label: 'Duplex Mismatch', advice: 'Verificar negociação de porta e configurações de velocidade.'}
-  ];
+    // 2. Flapping (Burst in short time)
+    // Check if > 4 events occur within a 60 min window
+    for(let i=0; i < events.length - 4; i++){
+      const t1 = events[i].eventTime;
+      const t2 = events[i+4].eventTime;
+      if(t1 && t2 && (t2 - t1) < 60*60*1000) {
+        suggestions.push(`<b>Instabilidade/Flapping:</b> O ativo <b>${Z.escape(asset)}</b> oscilou mais de 4 vezes em menos de 1 hora em ${Z.fmtDT(t1)}. Verificar estabilidade do link/energia.`);
+        break; // Report once per asset
+      }
+    }
 
-  const chronicAssets = new Map();
-  rows.forEach(r=>{
-    if(!r.asset || r.asset==='Desconhecido') return;
-    const txt = (r.short+' '+r.closeNotes).toLowerCase();
-    keywords.forEach(kw=>{
-      if(txt.includes(kw.word)){
-        const k = `${r.asset}|${kw.label}`;
-        if(!chronicAssets.has(k)) chronicAssets.set(k, {count:0, advice: kw.advice});
-        chronicAssets.get(k).count++;
+    // 3. Ineffective Repair (Fail < 48h after previous resolution)
+    for(let i=0; i < events.length - 1; i++){
+      const curr = events[i];
+      const next = events[i+1];
+      if(curr.eventTime && next.eventTime) {
+        const diffH = (next.eventTime - curr.eventTime) / (3600*1000);
+        // If current was "resolved" and next happened within 48h
+        if(curr.action !== 'Outro' && diffH < 48 && diffH > 0.1) {
+             // Check if same alarm type
+             if(curr.alarm === next.alarm){
+               suggestions.push(`<b>Reparo Inefetivo:</b> O ativo <b>${Z.escape(asset)}</b> voltou a falhar (${Z.escape(next.alarm)}) ${diffH.toFixed(1)}h após a ação "${curr.action}". Ação de campo recomendada.`);
+               break;
+             }
+        }
+      }
+    }
+
+    // 4. Chronic Issues (Keywords)
+    const keywords = [
+      {word: 'energy', label: 'Energia', advice: 'bancos de bateria/retificadores'},
+      {word: 'temperature', label: 'Temperatura', advice: 'ar-condicionado/fans'},
+      {word: 'crc', label: 'Erros Físicos (CRC)', advice: 'cabeamento/SFP'},
+      {word: 'duplex', label: 'Duplex Mismatch', advice: 'autonegociação'}
+    ];
+
+    // Check all text for this asset
+    const fullText = events.map(e => (e.short+' '+e.closeNotes).toLowerCase()).join(' ');
+    keywords.forEach(kw => {
+      const count = (fullText.match(new RegExp(kw.word, 'g')) || []).length;
+      if(count >= 2) {
+        suggestions.push(`<b>Sintoma Crônico (${kw.label}):</b> Detectado ${count}x no ativo <b>${Z.escape(asset)}</b>. Verificar ${kw.advice}.`);
       }
     });
   });
 
-  [...chronicAssets.entries()].forEach(([k, val])=>{
-    if(val.count > 2){
-      const [asset, label] = k.split('|');
-      suggestions.push(`Problema Crônico: O ativo <b>${Z.escape(asset)}</b> tem indícios de problemas de <b>${Z.escape(label)}</b> (${val.count} ocorrências). Sugestão: ${val.advice}`);
-    }
-  });
+  // Prioritize suggestions: Flapping > Ineffective > Chronic > Volume
+  const score = (s) => {
+    if(s.includes('Instabilidade')) return 4;
+    if(s.includes('Reparo Inefetivo')) return 3;
+    if(s.includes('Sintoma Crônico')) return 2;
+    return 1;
+  };
 
-  return suggestions.slice(0, 8); // Limit to 8 suggestions
+  return suggestions.sort((a,b) => score(b) - score(a)).slice(0, 8);
 }
 
 /* ====== FMDS Report Logic ====== */
