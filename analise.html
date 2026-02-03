@@ -6,6 +6,8 @@
   <title>Dashboard – BRCKSFMW140RPTOPO (v3)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@2.0.1/dist/chartjs-chart-matrix.min.js"></script>
   <style>
     :root{
       --bg:#121212; --card:#1e1e1e; --muted:#9fb3c8; --txt:#e9f1ff;
@@ -30,6 +32,19 @@
     .pill.bad{border-color:rgba(251,113,133,.40);color:#ffd1da}
 
     .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      color: var(--muted);
+      background: rgba(7,12,24,.3);
+      cursor: pointer;
+      transition: all 0.2s;
+      flex: 1 1 100%;
+      margin-bottom: 12px;
+    }
+    .drop-zone.dragover { border-color: var(--accent); background: rgba(0,126,122,0.1); color: var(--txt); }
     input[type=search], select, button, input[type=date]{
       background:rgba(7,12,24,.55);border:1px solid var(--border);color:var(--txt);
       padding:10px 12px;border-radius:10px;outline:none
@@ -93,8 +108,11 @@
       </div>
 
       <div class="toolbar" style="margin-top:12px">
-        <input id="file" type="file" accept=".json" />
-        <button id="loadBtn" class="btnPrimary">Carregar/Atualizar JSON</button>
+        <div id="dropZone" class="drop-zone">
+          Arraste o arquivo <b>incident.json</b> aqui ou clique para selecionar
+        </div>
+        <input id="file" type="file" accept=".json" style="display:none" />
+
         <button id="exportBtn" class="btnOk">Exportar CSV (filtro atual)</button>
         <button id="pdfBtn" class="btnOk">Baixar PDF (Gráficos)</button>
         <button id="printBtn" class="btnWarn">Imprimir (1 página FMDS)</button>
@@ -119,17 +137,20 @@
   </header>
 
   <div class="grid">
-    <div class="card" style="grid-column:span 3">
-      <div class="kpi"><div><div class="v" id="kpiTotal">—</div><div class="l">Eventos/Tickets no período</div></div><span class="pill">Total</span></div>
+    <div class="card" style="grid-column:span 2">
+      <div class="kpi"><div><div class="v" id="kpiTotal">—</div><div class="l">Eventos</div></div><span class="pill">Total</span></div>
+    </div>
+    <div class="card" style="grid-column:span 2">
+      <div class="kpi"><div><div class="v" id="kpiMTTR">—</div><div class="l">MTTR (Médio)</div></div><span class="pill">Tempo</span></div>
+    </div>
+    <div class="card" style="grid-column:span 2">
+      <div class="kpi"><div><div class="v" id="kpiP90">—</div><div class="l">P90 Duração</div></div><span class="pill">Cauda</span></div>
     </div>
     <div class="card" style="grid-column:span 3">
-      <div class="kpi"><div><div class="v" id="kpiMTTR">—</div><div class="l">MTTR médio (preferência Zabbix)</div></div><span class="pill">Tempo</span></div>
+      <div class="kpi"><div><div class="v" id="kpiMTBF">—</div><div class="l">MTBF (Médio entre falhas)</div></div><span class="pill">Freq.</span></div>
     </div>
     <div class="card" style="grid-column:span 3">
-      <div class="kpi"><div><div class="v" id="kpiP90">—</div><div class="l">P90 duração</div></div><span class="pill">Cauda</span></div>
-    </div>
-    <div class="card" style="grid-column:span 3">
-      <div class="kpi"><div><div class="v" id="kpiMTBF">—</div><div class="l">MTBF estimado</div></div><span class="pill">Recorrência</span></div>
+      <div class="kpi"><div><div class="v" id="kpiAvail">—</div><div class="l">Disponibilidade Est.</div></div><span class="pill ok">Uptime</span></div>
     </div>
 
     <div class="card" style="grid-column:span 6">
@@ -386,178 +407,31 @@ function parseCloseNotesFields(notes){
   return out;
 }
 
-/* ====== Charts (Canvas) with click handling ====== */
-function fitCanvas(canvas){
-  const dpr = window.devicePixelRatio||1;
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.floor(rect.width*dpr);
-  canvas.height = Math.floor(rect.height*dpr);
-  const ctx = canvas.getContext('2d');
-  ctx.setTransform(dpr,0,0,dpr,0,0);
-  return ctx;
-}
-function clear(ctx){
-  const w = ctx.canvas.getBoundingClientRect().width;
-  const h = ctx.canvas.getBoundingClientRect().height;
-  ctx.clearRect(0,0,w,h);
+/* ====== Chart.js Instances ====== */
+const CHARTS = {};
+
+Chart.defaults.color = '#9fb3c8';
+Chart.defaults.borderColor = 'rgba(255,255,255,0.1)';
+
+function destroyChart(id){
+  if(CHARTS[id]){ CHARTS[id].destroy(); delete CHARTS[id]; }
 }
 
-function barChart(canvas, labels, values, opts){
-  const ctx = fitCanvas(canvas);
-  const w = canvas.getBoundingClientRect().width;
-  const h = canvas.getBoundingClientRect().height;
-  clear(ctx);
-  const pad = 36;
-  const maxV = Math.max(...values, 1);
-  const bw = (w - pad*2) / Math.max(values.length,1);
-  // background
-  ctx.fillStyle = 'rgba(255,255,255,.06)';
-  ctx.fillRect(pad,pad,w-pad*2,h-pad*2);
-  // grid
-  ctx.strokeStyle = 'rgba(255,255,255,.10)';
-  for(let i=0;i<=4;i++){
-    const y = pad + (h-pad*2)*(i/4);
-    ctx.beginPath(); ctx.moveTo(pad,y); ctx.lineTo(w-pad,y); ctx.stroke();
-  }
-  // bars
-  const color = (opts && opts.color) || '#4ea1ff';
-  const bars = [];
-  ctx.fillStyle = color;
-  values.forEach((v,i)=>{
-    const bh = (h-pad*2)*(v/maxV);
-    const x = pad + i*bw + bw*0.15;
-    const y = h-pad - bh;
-    const ww = bw*0.7;
-    ctx.fillRect(x,y,ww,bh);
-    bars.push({i, x, y, w: ww, h: bh});
-  });
-  // labels
-  ctx.fillStyle = 'rgba(255,255,255,.82)';
-  ctx.font = '12px system-ui,Segoe UI,Arial';
-  const step = Math.ceil(labels.length/8) || 1;
-  labels.forEach((lab,i)=>{
-    if(i%step!==0 && i!==labels.length-1) return;
-    const x = pad + i*bw;
-    ctx.save();
-    ctx.translate(x+6, h-pad+16);
-    ctx.rotate(-0.35);
-    ctx.fillText(lab, 0, 0);
-    ctx.restore();
-  });
-  canvas.__bars = bars;
+function createChart(id, type, data, options){
+  destroyChart(id);
+  const ctx = document.getElementById(id).getContext('2d');
+  CHARTS[id] = new Chart(ctx, { type, data, options });
 }
 
-function hbarChart(canvas, labels, values, opts){
-  const ctx = fitCanvas(canvas);
-  const w = canvas.getBoundingClientRect().width;
-  const h = canvas.getBoundingClientRect().height;
-  clear(ctx);
-  const pad = 18;
-  const left = 210;
-  const maxV = Math.max(...values, 1);
-  const rowH = (h - pad*2) / Math.max(values.length,1);
-  ctx.font = '12px system-ui,Segoe UI,Arial';
-  const bars=[];
-  labels.forEach((lab,i)=>{
-    const y = pad + i*rowH + rowH*0.70;
-    ctx.fillStyle = 'rgba(255,255,255,.86)';
-    ctx.fillText(lab, pad, y);
-    const bw = (w - left - pad) * (values[i]/maxV);
-    ctx.fillStyle = (opts && opts.color) || '#ffb020';
-    ctx.fillRect(left, y-10, bw, 12);
-    ctx.fillStyle = 'rgba(255,255,255,.70)';
-    ctx.fillText(String(values[i]), left + bw + 6, y);
-    bars.push({i, x:left, y:y-10, w:bw, h:12});
-  });
-  canvas.__bars = bars;
-}
-
-function matrixChart(canvas, rowLabels, colLabels, matrix, opts){
-  const ctx = fitCanvas(canvas);
-  const w = canvas.getBoundingClientRect().width;
-  const h = canvas.getBoundingClientRect().height;
-  clear(ctx);
-  const pad = 16;
-  const top = 26;
-  const left = 170;
-  const cellW = (w-left-pad) / Math.max(colLabels.length,1);
-  const cellH = (h-top-pad) / Math.max(rowLabels.length,1);
-  const maxV = Math.max(1, ...matrix.flat());
-
-  ctx.font='12px system-ui,Segoe UI,Arial';
-  // col labels
-  ctx.fillStyle='rgba(255,255,255,.86)';
-  colLabels.forEach((c,j)=>{
-    ctx.save();
-    ctx.translate(left + j*cellW + 6, top - 6);
-    ctx.rotate(-0.35);
-    ctx.fillText(c, 0, 0);
-    ctx.restore();
-  });
-  // row labels + cells
-  const cells=[];
-  rowLabels.forEach((r,i)=>{
-    const y0 = top + i*cellH;
-    ctx.fillStyle='rgba(255,255,255,.86)';
-    ctx.fillText(r, pad, y0+cellH*0.65);
-    colLabels.forEach((c,j)=>{
-      const x0 = left + j*cellW;
-      const v = matrix[i][j];
-      const alpha = v/maxV;
-      ctx.fillStyle = `rgba(78,161,255,${0.10 + 0.55*alpha})`;
-      ctx.fillRect(x0, y0, cellW-1, cellH-1);
-      ctx.fillStyle='rgba(255,255,255,.75)';
-      if(v>0) ctx.fillText(String(v), x0+6, y0+cellH*0.62);
-      cells.push({i,j,x:x0,y:y0,w:cellW-1,h:cellH-1});
+/* ====== Helper to build Matrix Data ====== */
+function buildMatrixData(matrix, rowLabels, colLabels){
+  const data = [];
+  matrix.forEach((row, r)=>{
+    row.forEach((v, c)=>{
+      if(v > 0) data.push({x: c, y: r, v: v});
     });
   });
-  canvas.__cells = cells;
-  canvas.__rows = rowLabels;
-  canvas.__cols = colLabels;
-}
-
-function heatmapChart(canvas, matrix){
-  const ctx = fitCanvas(canvas);
-  const w = canvas.getBoundingClientRect().width;
-  const h = canvas.getBoundingClientRect().height;
-  clear(ctx);
-  const padLeft = 40;
-  const padBot = 20;
-  const cols = 24;
-  const rows = 7;
-  const cellW = (w-padLeft) / cols;
-  const cellH = (h-padBot) / rows;
-  const maxV = Math.max(1, ...matrix.flat());
-
-  const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
-
-  ctx.font='10px system-ui';
-  // Y labels
-  ctx.fillStyle='rgba(255,255,255,.6)';
-  days.forEach((d,i)=>{
-    ctx.fillText(d, 4, i*cellH + cellH*0.6);
-  });
-  // X labels (every 2h)
-  for(let j=0; j<24; j+=2){
-    ctx.fillText(String(j)+'h', padLeft + j*cellW, h-4);
-  }
-
-  // Cells
-  matrix.forEach((row, i)=>{
-    row.forEach((v, j)=>{
-      const x = padLeft + j*cellW;
-      const y = i*cellH;
-      const alpha = v/maxV;
-      ctx.fillStyle = v>0 ? `rgba(240,179,35,${0.2 + 0.8*alpha})` : 'rgba(255,255,255,.03)';
-      ctx.fillRect(x,y, cellW-1, cellH-1);
-      if(v>0 && cellW>15){ // show value if space permits
-        ctx.fillStyle='#fff';
-        ctx.textAlign='center';
-        ctx.fillText(String(v), x+cellW/2, y+cellH/2+4);
-        ctx.textAlign='left';
-      }
-    });
-  });
+  return data;
 }
 
 /* ====== State ====== */
@@ -689,8 +563,49 @@ function durationHistogram(rows){
 function computeMTBF(rows){
   const ts = rows.filter(r=>r.eventTime).map(r=>r.eventTime.getTime()).sort((a,b)=>a-b);
   if(ts.length<2) return NaN;
-  const deltas = ts.slice(1).map((t,i)=> (t-ts[i])/(3600*1000));
-  return Z.mean(deltas);
+  // MTBF = (Total Time Range) / (Count - 1)
+  const rangeMs = ts[ts.length-1] - ts[0];
+  return (rangeMs / (3600*1000)) / Math.max(1, ts.length-1);
+}
+
+function computeAvailability(rows){
+  // 1. Calculate Union of Downtime Intervals
+  const intervals = rows
+    .filter(r=>r.eventTime && r.mttrSec>0)
+    .map(r=> ({ start: r.eventTime.getTime(), end: r.eventTime.getTime() + r.mttrSec*1000 }))
+    .sort((a,b)=>a.start-b.start);
+
+  if(!intervals.length) return 100;
+
+  let merged = [];
+  let curr = intervals[0];
+
+  for(let i=1; i<intervals.length; i++){
+    const next = intervals[i];
+    if(next.start < curr.end){
+      // overlap, extend current end if needed
+      curr.end = Math.max(curr.end, next.end);
+    } else {
+      merged.push(curr);
+      curr = next;
+    }
+  }
+  merged.push(curr);
+
+  const totalDownMs = merged.reduce((sum, iv)=> sum + (iv.end - iv.start), 0);
+
+  // 2. Calculate Total Time Range
+  const times = rows.filter(r=>r.eventTime).map(r=>r.eventTime.getTime());
+  if(!times.length) return 100;
+  const minT = Math.min(...times);
+  const maxT = Math.max(...times);
+  // Extend range to cover the last downtime
+  const rangeEnd = Math.max(maxT, merged.length ? merged[merged.length-1].end : maxT);
+  const totalRangeMs = Math.max(rangeEnd - minT, 1);
+
+  // 3. Availability
+  const avail = 1 - (totalDownMs / totalRangeMs);
+  return Math.max(0, Math.min(100, avail * 100));
 }
 
 function buildMatrix(rows){
@@ -876,9 +791,12 @@ function render(){
 
   document.getElementById('kpiTotal').textContent = total ? String(total) : '—';
   document.getElementById('slaRate').textContent = total ? `${slaRate.toFixed(0)}%` : '—';
+  const avail = computeAvailability(VIEW);
+
   document.getElementById('kpiMTTR').textContent = isFinite(mttrAvg) ? Z.fmtDur(mttrAvg) : '—';
   document.getElementById('kpiP90').textContent = isFinite(p90) ? Z.fmtDur(p90) : '—';
   document.getElementById('kpiMTBF').textContent = isFinite(mtbfH) ? `${(mtbfH/24).toFixed(1)}d` : '—';
+  document.getElementById('kpiAvail').textContent = isFinite(avail) ? `${avail.toFixed(4)}%` : '—';
 
   // Exec summary + FMDS
   const first = VIEW.filter(r=>r.eventTime).sort((a,b)=>a.eventTime-b.eventTime)[0]?.eventTime;
@@ -903,34 +821,187 @@ function render(){
     sla: total ? `${slaRate.toFixed(0)}%` : '—'
   });
 
-  // Charts
-  const mc = monthCounts(VIEW);
-  barChart(document.getElementById('cMonth'), mc.labels, mc.values, {color:'#4ea1ff'});
+  // Charts - Chart.js Implementation
 
-  // Clustered Alarm Types
-  // We need to count by cluster leader, not raw alarm
+  // 1. Month Chart
+  const mc = monthCounts(VIEW);
+  createChart('cMonth', 'bar', {
+    labels: mc.labels,
+    datasets: [{
+      label: 'Incidentes',
+      data: mc.values,
+      backgroundColor: 'rgba(78,161,255,0.6)',
+      borderColor: '#4ea1ff',
+      borderWidth: 1
+    }]
+  }, {
+    responsive: true,
+    maintainAspectRatio: false,
+    onClick: (e, els) => {
+      if(!els.length) return;
+      const idx = els[0].index;
+      const label = mc.labels[idx];
+      if(label){
+        const [y, m] = label.split('-');
+        const lastDay = new Date(y, m, 0).getDate();
+        FILTER.start = `${y}-${m}-01`;
+        FILTER.end = `${y}-${m}-${lastDay}`;
+        FILTER.matrix=null;
+        syncControls(); render();
+      }
+    }
+  });
+
+  // 2. Type Chart (Top 8)
   const typeMap = new Map();
   VIEW.forEach(r=>{
     const k = CLUSTER_MAP.get(r.alarm) || r.alarm;
     typeMap.set(k, (typeMap.get(k)||0)+1);
   });
-  const types = [...typeMap.entries()].sort((a,b)=>b[1]-a[1]);
+  const types = [...typeMap.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8);
+  createChart('cType', 'bar', {
+    labels: types.map(x=>x[0]),
+    datasets: [{
+      label: 'Volume',
+      data: types.map(x=>x[1]),
+      backgroundColor: 'rgba(255,176,32,0.6)',
+      borderColor: '#F0B323',
+      borderWidth: 1
+    }]
+  }, {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    onClick: (e, els) => {
+      if(!els.length) return;
+      const label = types[els[0].index][0];
+      if(label){ FILTER.alarm = label; FILTER.matrix=null; syncControls(); render(); }
+    }
+  });
 
-  hbarChart(document.getElementById('cType'), types.slice(0,8).map(x=>x[0]), types.slice(0,8).map(x=>x[1]), {color:'#ffb020'});
-
+  // 3. Duration Histogram
   const hist = durationHistogram(VIEW);
-  barChart(document.getElementById('cDur'), hist.labels, hist.values, {color:'#34d399'});
+  createChart('cDur', 'bar', {
+    labels: hist.labels,
+    datasets: [{
+      label: 'Ocorrências',
+      data: hist.values,
+      backgroundColor: 'rgba(52,211,153,0.6)',
+      borderColor: '#34d399',
+      borderWidth: 1
+    }]
+  }, {
+    responsive: true,
+    maintainAspectRatio: false
+  });
 
+  // 4. Matrix (Problem x Solution)
   const mx = buildMatrix(VIEW);
-  matrixChart(document.getElementById('cMatrix'), mx.p, mx.s, mx.mat);
+  console.log('Matrix Data:', mx);
+  const mxData = [];
+  mx.p.forEach((p, y)=>{
+    mx.s.forEach((s, x)=>{
+      const v = mx.mat[y][x];
+      if(v>0) mxData.push({x: s, y: p, v});
+    });
+  });
+  const maxMx = Math.max(1, ...mxData.map(d=>d.v));
+  createChart('cMatrix', 'matrix', {
+    datasets: [{
+      label: 'Incidentes',
+      data: mxData,
+      backgroundColor(c){
+        const val = c.raw?.v || 0;
+        return `rgba(78,161,255,${0.1 + 0.9*(val/maxMx)})`;
+      },
+      width: ({chart})=> (chart.chartArea?.width / mx.s.length) - 2,
+      height: ({chart})=> (chart.chartArea?.height / mx.p.length) - 2
+    }]
+  }, {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: { type: 'category', labels: mx.s, ticks: {autoSkip:false, maxRotation:45, minRotation:45, font:{size:10}} },
+      y: { type: 'category', labels: mx.p, offset: true, ticks:{font:{size:10}} }
+    },
+    plugins: {
+      tooltip: {
+        callbacks: {
+          title:()=>'',
+          label:(c)=> `${c.raw.y} x ${c.raw.x}: ${c.raw.v}`
+        }
+      }
+    },
+    onClick: (e, els) => {
+      if(!els.length) return;
+      const raw = els[0].element.$context.raw;
+      if(raw){
+        FILTER.matrix = {p: raw.y, s: raw.x};
+        syncControls(); render();
+      }
+    }
+  });
 
-  // Heatmap
-  const hmData = analyzeHeatmap(VIEW);
-  heatmapChart(document.getElementById('cHeatmap'), hmData);
+  // 5. Heatmap (Day x Hour)
+  const hmMatrix = analyzeHeatmap(VIEW);
+  const hmData = [];
+  const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+  hmMatrix.forEach((row, d)=>{
+    row.forEach((v, h)=>{
+      if(v>0) hmData.push({x: h, y: d, v});
+    });
+  });
+  const maxHm = Math.max(1, ...hmData.map(d=>d.v));
+  createChart('cHeatmap', 'matrix', {
+    datasets: [{
+      label: 'Incidentes',
+      data: hmData,
+      backgroundColor(c){
+        const val = c.raw?.v || 0;
+        return `rgba(240,179,35,${0.2 + 0.8*(val/maxHm)})`;
+      },
+      width: ({chart})=> (chart.chartArea?.width / 24) - 1,
+      height: ({chart})=> (chart.chartArea?.height / 7) - 1
+    }]
+  }, {
+    responsive: true,
+    maintainAspectRatio: false,
+    scales: {
+      x: { type: 'linear', min: 0, max: 23, ticks: {stepSize:1} },
+      y: { type: 'category', labels: days, offset: true }
+    },
+    plugins: {
+      tooltip: {
+        callbacks: {
+          title:()=>'',
+          label:(c)=> `${days[c.raw.y]} ${c.raw.x}h: ${c.raw.v}`
+        }
+      }
+    }
+  });
 
-  // Asset Recurrence Chart
+  // 6. Asset Recurrence
   const assetRec = analyzeAssetRecurrence(VIEW);
-  hbarChart(document.getElementById('cAsset'), assetRec.map(x=>x[0]), assetRec.map(x=>x[1]), {color:'#D9534F'});
+  console.log('Asset Recurrence:', assetRec);
+  createChart('cAsset', 'bar', {
+    labels: assetRec.map(x=>x[0]),
+    datasets: [{
+      label: 'Recorrência',
+      data: assetRec.map(x=>x[1]),
+      backgroundColor: 'rgba(217,83,79,0.6)',
+      borderColor: '#D9534F',
+      borderWidth: 1
+    }]
+  }, {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    onClick: (e, els) => {
+      if(!els.length) return;
+      const label = assetRec[els[0].index][0];
+      if(label){ FILTER.asset = label; syncControls(); render(); }
+    }
+  });
 
   // PRB Suggestions
   const suggestions = analyzeProactivePRB(VIEW);
@@ -1010,81 +1081,6 @@ function renderTable(rows){
   });
 }
 
-/* ===== Drill-down clicks ===== */
-function attachClicks(){
-  const cMonth = document.getElementById('cMonth');
-  const cType = document.getElementById('cType');
-  const cMatrix = document.getElementById('cMatrix');
-  const cAsset = document.getElementById('cAsset');
-
-  // Since Month chart is no longer the primary filter (Date Range is), keeping it as a "zoom to month" is fine
-  // but we should probably set start/end to that month boundaries.
-  cMonth.addEventListener('click', (ev)=>{
-    const hit = hitBar(cMonth, ev);
-    if(hit==null) return;
-    const labels = monthCounts(VIEW).labels;
-    const label = labels[hit]; // "YYYY-MM"
-    if(label){
-      // Set date range to this month
-      const [y, m] = label.split('-');
-      const lastDay = new Date(y, m, 0).getDate();
-      FILTER.start = `${y}-${m}-01`;
-      FILTER.end = `${y}-${m}-${lastDay}`;
-      FILTER.matrix=null;
-      syncControls(); render();
-    }
-  });
-
-  cType.addEventListener('click', (ev)=>{
-    const hit = hitBar(cType, ev);
-    if(hit==null) return;
-    const types = countsBy(VIEW,'alarm');
-    const label = types.slice(0,8)[hit]?.[0];
-    if(label){ FILTER.alarm = label; FILTER.matrix=null; syncControls(); render(); }
-  });
-
-  cMatrix.addEventListener('click', (ev)=>{
-    const hit = hitCell(cMatrix, ev);
-    if(!hit) return;
-    const p = cMatrix.__rows[hit.i];
-    const s = cMatrix.__cols[hit.j];
-    FILTER.matrix = {p,s};
-    syncControls();
-    render();
-  });
-
-  cAsset.addEventListener('click', (ev)=>{
-    const hit = hitBar(cAsset, ev);
-    if(hit==null) return;
-    // assetRec is recalculated in render, we need to access it similarly
-    const assetRec = analyzeAssetRecurrence(VIEW);
-    const label = assetRec[hit]?.[0];
-    if(label){ FILTER.asset = label; syncControls(); render(); }
-  });
-}
-
-function hitBar(canvas, ev){
-  const rect = canvas.getBoundingClientRect();
-  const x = ev.clientX - rect.left;
-  const y = ev.clientY - rect.top;
-  const bars = canvas.__bars || [];
-  for(const b of bars){
-    if(x>=b.x && x<=b.x+b.w && y>=b.y && y<=b.y+b.h) return b.i;
-  }
-  return null;
-}
-
-function hitCell(canvas, ev){
-  const rect = canvas.getBoundingClientRect();
-  const x = ev.clientX - rect.left;
-  const y = ev.clientY - rect.top;
-  const cells = canvas.__cells || [];
-  for(const c of cells){
-    if(x>=c.x && x<=c.x+c.w && y>=c.y && y<=c.y+c.h) return c;
-  }
-  return null;
-}
-
 /* ===== Controls ===== */
 function syncControls(){
   document.getElementById('q').value = FILTER.q || '';
@@ -1135,14 +1131,46 @@ function loadFromJSON(json){
   clearFilters();
 }
 
-document.getElementById('loadBtn').addEventListener('click', async ()=>{
-  const file = document.getElementById('file').files[0];
-  if(!file){ alert('Selecione um arquivo .json primeiro.'); return; }
-  const text = await file.text();
-  let json;
-  try{ json = JSON.parse(text); }catch(e){ alert('JSON inválido.'); return; }
-  loadFromJSON(json);
+/* ===== Drag & Drop Logic ===== */
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('file');
+
+dropZone.addEventListener('click', () => fileInput.click());
+
+dropZone.addEventListener('dragover', (e) => {
+  e.preventDefault();
+  dropZone.classList.add('dragover');
 });
+
+dropZone.addEventListener('dragleave', () => {
+  dropZone.classList.remove('dragover');
+});
+
+dropZone.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  const files = e.dataTransfer.files;
+  if(files.length) handleFile(files[0]);
+});
+
+fileInput.addEventListener('change', () => {
+  if(fileInput.files.length) handleFile(fileInput.files[0]);
+});
+
+async function handleFile(file){
+  if(!file.name.endsWith('.json')){ alert('Por favor, envie um arquivo .json'); return; }
+  dropZone.textContent = `Carregando ${file.name}...`;
+  try {
+    const text = await file.text();
+    const json = JSON.parse(text);
+    loadFromJSON(json);
+    dropZone.innerHTML = `Arquivo <b>${Z.escape(file.name)}</b> carregado com sucesso!`;
+  } catch(e){
+    console.error(e);
+    alert('Erro ao ler JSON. Verifique o formato.');
+    dropZone.textContent = 'Erro. Tente novamente.';
+  }
+}
 
 ['q','fAlarm','fRes','fStart','fEnd'].forEach(id=>{
   const handler = (e)=>{
@@ -1217,9 +1245,6 @@ async function downloadPDF(){
 document.getElementById('pdfBtn').addEventListener('click', downloadPDF);
 
 window.addEventListener('resize', ()=>render());
-
-// attach drilldown handlers once
-attachClicks();
 
 // boot with embedded data
 loadFromJSON(EMBEDDED);
