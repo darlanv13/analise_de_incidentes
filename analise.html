@@ -56,7 +56,8 @@
     .btnOk{background:rgba(52,211,153,.16)}
     .btnWarn{background:rgba(255,176,32,.15)}
 
-    canvas{width:100%;height:280px;border-radius:12px;border:1px solid var(--border);background:rgba(7,12,24,.35)}
+    .chart-box{position:relative;height:300px;width:100%}
+    canvas{border-radius:12px;border:1px solid var(--border);background:rgba(7,12,24,.35)}
     .muted{color:var(--muted)}
     .callout{border-left:4px solid var(--accent);padding:10px 12px;background:rgba(78,161,255,.09);border-radius:12px}
     .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
@@ -155,38 +156,38 @@
 
     <div class="card" style="grid-column:span 6">
       <h2>Incidentes por mês (clique para filtrar)</h2>
-      <canvas id="cMonth"></canvas>
+      <div class="chart-box"><canvas id="cMonth"></canvas></div>
       <div class="small">Contagem por mês usando Failure Time (quando disponível) ou opened/work_start.</div>
     </div>
 
     <div class="card" style="grid-column:span 6">
       <h2>Tipos de alarme (clique para filtrar)</h2>
-      <canvas id="cType"></canvas>
+      <div class="chart-box"><canvas id="cType"></canvas></div>
       <div class="small">Classificação por palavras‑chave e extração do Air Interface quando disponível.</div>
     </div>
 
     <div class="card" style="grid-column:span 6">
       <h2>Duração (horas) – histograma</h2>
-      <canvas id="cDur"></canvas>
+      <div class="chart-box"><canvas id="cDur"></canvas></div>
       <div class="small">Prioriza “Problem has been resolved in …” do texto do Zabbix.</div>
     </div>
 
     <div class="card" style="grid-column:span 6">
       <h2>Matriz Problema × Solução (extraído das anotações)</h2>
-      <canvas id="cMatrix"></canvas>
+      <div class="chart-box"><canvas id="cMatrix"></canvas></div>
       <div class="small">Extraído do close_notes (Problema/Solução). Clique em uma célula para filtrar.</div>
     </div>
 
     <div class="card" style="grid-column:span 6">
       <h2>Heatmap de Incidentes (Dia da Semana × Hora)</h2>
-      <canvas id="cHeatmap"></canvas>
+      <div class="chart-box"><canvas id="cHeatmap"></canvas></div>
       <div class="small">Concentração de falhas. Eixo X: Hora do dia (0-23). Eixo Y: Dia da semana.</div>
     </div>
 
     <!-- New Sections -->
     <div class="card" style="grid-column:span 6">
       <h2>Análise de Recorrência de Ativos (Top 10)</h2>
-      <canvas id="cAsset"></canvas>
+      <div class="chart-box"><canvas id="cAsset"></canvas></div>
       <div class="small">Ativos com maior volume de incidentes no período selecionado.</div>
     </div>
 
