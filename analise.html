@@ -99,23 +99,27 @@
     /* FMDS Report Styles (Hidden by default, used for PDF generation) */
     .fmds-layout {
       position: absolute; top: -9999px; left: -9999px; /* Off-screen */
-      width: 1500px; /* High res for capture */
+      width: 1500px;
+      height: 1060px; /* Force A4 Landscape Aspect Ratio (approx 1.414) */
       background: #121212; color: #e9f1ff; /* Dark Theme */
       font-family: 'Segoe UI', sans-serif;
       display: grid;
       grid-template-rows: auto 1fr;
       gap: 0;
       border: 1px solid #333;
+      box-sizing: border-box;
     }
     .fmds-header {
       background: #1e1e1e;
       display: grid;
       grid-template-columns: 3fr 1fr;
       color: #fff;
+      height: 80px; /* Fixed header height */
     }
     .fmds-title-bar {
       background: #000;
-      padding: 12px 24px;
+      padding: 0 24px;
+      display: flex; align-items: center;
       font-size: 26px; font-weight: 400; letter-spacing: 0.5px;
       border-bottom: 4px solid #F0B323; /* Vale Gold Accent */
     }
@@ -131,6 +135,8 @@
       display: grid;
       grid-template-columns: 1fr 1fr; /* 50/50 Split */
       gap: 15px;
+      height: 100%; /* Fill remaining height */
+      box-sizing: border-box;
     }
     .fmds-panel {
       background: #1e1e1e;
@@ -138,7 +144,7 @@
       border-radius: 8px;
       overflow: hidden;
       display: flex; flex-direction: column;
-      margin-bottom: 15px;
+      /* No margin-bottom, use gap from grid/flex */
     }
     .fmds-panel-head {
       background: #007E7A; color: #fff;
@@ -151,9 +157,11 @@
       display: flex; flex-direction: column; gap: 10px;
     }
     .fmds-chart-row {
-      height: 220px; position: relative;
+      flex: 1; /* Expand to fill space */
+      position: relative;
       border: 1px solid #333; background: #1e1e1e;
       margin-bottom: 10px;
+      min-height: 200px;
     }
     .fmds-kpi-row {
       display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
@@ -170,8 +178,8 @@
       height: 180px;
     }
     .fmds-table {
-      width: 100%; border-collapse: collapse;
-      font-size: 11px;
+      width: 100%; min-width: auto !important; border-collapse: collapse;
+      font-size: 11px; table-layout: fixed;
     }
     .fmds-table th { background: #000; color: #F0B323; padding: 6px; text-align: left; border-bottom: 2px solid #333; }
     .fmds-table td { border: 1px solid #333; padding: 6px; vertical-align: middle; color: #e9f1ff; }
@@ -363,10 +371,10 @@
   </div>
 
   <div class="fmds-body">
-    <!-- Left Column: Acompanhamento + Repetibilidade -->
-    <div style="display:flex; flex-direction:column; gap:15px">
+    <!-- Left Column: Acompanhamento (Charts) -->
+    <div style="display:flex; flex-direction:column; gap:15px; height: 100%">
       <!-- Incidents Tracking -->
-      <div class="fmds-panel">
+      <div class="fmds-panel" style="flex:1">
         <div class="fmds-panel-head">Acompanhamento dos incidentes</div>
         <div class="fmds-panel-content">
           <div class="fmds-chart-row">
@@ -394,23 +402,12 @@
           </div>
         </div>
       </div>
-
-      <!-- Repetibilidade -->
-      <div class="fmds-panel">
-        <div class="fmds-panel-head">Repetibilidade / PRB Proativo</div>
-        <div class="fmds-panel-content" style="padding:0; overflow:hidden">
-           <table class="fmds-table">
-            <thead><tr><th width="20%">ATIVO</th><th>Descrição</th><th width="20%">Ação</th></tr></thead>
-            <tbody id="tFmdsRep"></tbody>
-          </table>
-        </div>
-      </div>
     </div>
 
-    <!-- Right Column: Analise + Recorrencia -->
-    <div style="display:flex; flex-direction:column; gap:15px">
+    <!-- Right Column: Tables (Analysis + Recurrence + PRB) -->
+    <div style="display:flex; flex-direction:column; gap:15px; height: 100%">
       <!-- INC Analysis -->
-      <div class="fmds-panel">
+      <div class="fmds-panel" style="flex:1">
         <div class="fmds-panel-head">Analise de INC</div>
         <div class="fmds-panel-content" style="padding:0; overflow:hidden">
           <table class="fmds-table">
@@ -420,8 +417,8 @@
         </div>
       </div>
 
-      <!-- Recurrence (Moved here, below Analysis) -->
-      <div class="fmds-panel">
+      <!-- Recurrence -->
+      <div class="fmds-panel" style="flex:1">
         <div class="fmds-panel-head">Recorrência por Ativo (Top 5)</div>
         <div class="fmds-panel-content" style="padding:0">
           <table class="fmds-table">
@@ -436,6 +433,17 @@
             <div style="display:flex;align-items:center;gap:4px"><span class="status-dot dot-green"></span> Fim em > 2 anos</div>
             <div style="display:flex;align-items:center;gap:4px"><span class="status-dot dot-red"></span> Sem suporte</div>
           </div>
+        </div>
+      </div>
+
+      <!-- Repetibilidade / PRB Proativo (Moved to Right) -->
+      <div class="fmds-panel" style="flex:1">
+        <div class="fmds-panel-head">Repetibilidade / PRB Proativo</div>
+        <div class="fmds-panel-content" style="padding:0; overflow:hidden">
+           <table class="fmds-table">
+            <thead><tr><th width="20%">ATIVO</th><th>Descrição</th><th width="20%">Ação</th></tr></thead>
+            <tbody id="tFmdsRep"></tbody>
+          </table>
         </div>
       </div>
     </div>
@@ -1041,7 +1049,7 @@ function renderFMDS(rows){
   const tRec = document.getElementById('tFmdsRec');
   tRec.innerHTML = rec.map(([asset, count])=>`
     <tr>
-      <td>${asset}</td>
+      <td>${Z.escape(asset)}</td>
       <td style="text-align:center">${count}</td>
       <td style="text-align:center"><span class="status-dot dot-green"></span></td>
     </tr>`).join('');
@@ -1051,9 +1059,9 @@ function renderFMDS(rows){
   const tInc = document.getElementById('tFmdsInc');
   tInc.innerHTML = topIncs.map(r=>`
     <tr>
-      <td>${r.number}<div style="font-size:9px;color:#666">${r.asset}</div></td>
-      <td>${Z.compact(r.closeNotes || r.short, 80)}</td>
-      <td class="action-green">${Z.compact(r.action, 30)}</td>
+      <td>${Z.escape(r.number)}<div style="font-size:9px;color:#666">${Z.escape(r.asset)}</div></td>
+      <td>${Z.escape(Z.compact(r.closeNotes || r.short, 80))}</td>
+      <td class="action-green">${Z.escape(Z.compact(r.action, 30))}</td>
     </tr>`).join('');
 
   // 7. Repetibilidade Table (Proactive PRB format)
