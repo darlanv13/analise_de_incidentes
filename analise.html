@@ -3,7 +3,9 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Dashboard – BRCKSFMW140RPTOPO (v2)</title>
+  <title>Dashboard – BRCKSFMW140RPTOPO (v3)</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <style>
     :root{
       --bg:#121212; --card:#1e1e1e; --muted:#9fb3c8; --txt:#e9f1ff;
@@ -28,10 +30,11 @@
     .pill.bad{border-color:rgba(251,113,133,.40);color:#ffd1da}
 
     .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-    input[type=search], select, button{
+    input[type=search], select, button, input[type=date]{
       background:rgba(7,12,24,.55);border:1px solid var(--border);color:var(--txt);
       padding:10px 12px;border-radius:10px;outline:none
     }
+    input[type=date]::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
     button{cursor:pointer}
     button:hover{border-color:rgba(78,161,255,.5)}
     .btnPrimary{background:rgba(78,161,255,.16)}
@@ -93,6 +96,7 @@
         <input id="file" type="file" accept=".json" />
         <button id="loadBtn" class="btnPrimary">Carregar/Atualizar JSON</button>
         <button id="exportBtn" class="btnOk">Exportar CSV (filtro atual)</button>
+        <button id="pdfBtn" class="btnOk">Baixar PDF (Gráficos)</button>
         <button id="printBtn" class="btnWarn">Imprimir (1 página FMDS)</button>
         <label class="small" style="display:flex;align-items:center;gap:8px">
           <input id="dedupToggle" type="checkbox" checked /> Contar eventos deduplicados
@@ -152,6 +156,12 @@
       <div class="small">Extraído do close_notes (Problema/Solução). Clique em uma célula para filtrar.</div>
     </div>
 
+    <div class="card" style="grid-column:span 6">
+      <h2>Heatmap de Incidentes (Dia da Semana × Hora)</h2>
+      <canvas id="cHeatmap"></canvas>
+      <div class="small">Concentração de falhas. Eixo X: Hora do dia (0-23). Eixo Y: Dia da semana.</div>
+    </div>
+
     <!-- New Sections -->
     <div class="card" style="grid-column:span 6">
       <h2>Análise de Recorrência de Ativos (Top 10)</h2>
@@ -177,7 +187,10 @@
         <input id="q" type="search" placeholder="Buscar por INC, alarme, ação, texto…" />
         <select id="fAlarm"><option value="">Todos os alarmes</option></select>
         <select id="fRes"><option value="">Todas as ações</option></select>
-        <select id="fMonth"><option value="">Todos os meses</option></select>
+
+        <span class="small">De:</span> <input id="fStart" type="date" />
+        <span class="small">Até:</span> <input id="fEnd" type="date" />
+
         <button id="clearFilter">Limpar filtros</button>
       </div>
 
@@ -265,6 +278,20 @@ const Z = {
   escape: (s) => {
     if(!s || typeof s !== 'string') return '';
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  },
+  lev: (a, b) => {
+    if(a.length===0) return b.length;
+    if(b.length===0) return a.length;
+    const matrix = [];
+    for(let i=0; i<=b.length; i++) matrix[i] = [i];
+    for(let j=0; j<=a.length; j++) matrix[0][j] = j;
+    for(let i=1; i<=b.length; i++){
+      for(let j=1; j<=a.length; j++){
+        if(b.charAt(i-1)===a.charAt(j-1)) matrix[i][j] = matrix[i-1][j-1];
+        else matrix[i][j] = Math.min(matrix[i-1][j-1]+1, matrix[i][j-1]+1, matrix[i-1][j]+1);
+      }
+    }
+    return matrix[b.length][a.length];
   },
   quantile: (a,q) => {
     a=a.filter(x=>isFinite(x)).slice().sort((x,y)=>x-y);
@@ -489,10 +516,55 @@ function matrixChart(canvas, rowLabels, colLabels, matrix, opts){
   canvas.__cols = colLabels;
 }
 
+function heatmapChart(canvas, matrix){
+  const ctx = fitCanvas(canvas);
+  const w = canvas.getBoundingClientRect().width;
+  const h = canvas.getBoundingClientRect().height;
+  clear(ctx);
+  const padLeft = 40;
+  const padBot = 20;
+  const cols = 24;
+  const rows = 7;
+  const cellW = (w-padLeft) / cols;
+  const cellH = (h-padBot) / rows;
+  const maxV = Math.max(1, ...matrix.flat());
+
+  const days = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+
+  ctx.font='10px system-ui';
+  // Y labels
+  ctx.fillStyle='rgba(255,255,255,.6)';
+  days.forEach((d,i)=>{
+    ctx.fillText(d, 4, i*cellH + cellH*0.6);
+  });
+  // X labels (every 2h)
+  for(let j=0; j<24; j+=2){
+    ctx.fillText(String(j)+'h', padLeft + j*cellW, h-4);
+  }
+
+  // Cells
+  matrix.forEach((row, i)=>{
+    row.forEach((v, j)=>{
+      const x = padLeft + j*cellW;
+      const y = i*cellH;
+      const alpha = v/maxV;
+      ctx.fillStyle = v>0 ? `rgba(240,179,35,${0.2 + 0.8*alpha})` : 'rgba(255,255,255,.03)';
+      ctx.fillRect(x,y, cellW-1, cellH-1);
+      if(v>0 && cellW>15){ // show value if space permits
+        ctx.fillStyle='#fff';
+        ctx.textAlign='center';
+        ctx.fillText(String(v), x+cellW/2, y+cellH/2+4);
+        ctx.textAlign='left';
+      }
+    });
+  });
+}
+
 /* ====== State ====== */
 let RAW = [];       // tickets raw rows
 let VIEW = [];      // after dedup and filters
-let FILTER = { q:'', alarm:'', action:'', month:'', matrix:null };
+let FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', matrix:null };
+let CLUSTER_MAP = new Map(); // original -> leader
 let MODE_DEDUP = true;
 
 /* ====== Build rows ====== */
@@ -643,6 +715,48 @@ function analyzeAssetRecurrence(rows){
   return counts.slice(0, 10); // Top 10
 }
 
+function computeClusters(rows){
+  const alarms = uniq(rows.map(r=>r.alarm));
+  const map = new Map();
+  const leaders = [];
+
+  alarms.forEach(a=>{
+    // Try to find a close leader
+    let bestL = null;
+    let minD = Infinity;
+    // Simple heuristic: must share start char? No.
+    // Length diff check
+    for(const l of leaders){
+      if(Math.abs(a.length - l.length) > 5) continue;
+      const dist = Z.lev(a, l);
+      const limit = Math.max(a.length, l.length) * 0.20; // 20% diff allowed
+      if(dist <= limit && dist < minD){
+        minD = dist;
+        bestL = l;
+      }
+    }
+    if(bestL){
+      map.set(a, bestL);
+    } else {
+      leaders.push(a);
+      map.set(a, a);
+    }
+  });
+  return map;
+}
+
+function analyzeHeatmap(rows){
+  // 7 rows (Dom-Sat), 24 cols (0-23)
+  const mat = Array.from({length:7}, ()=>Array(24).fill(0));
+  rows.forEach(r=>{
+    if(!r.eventTime) return;
+    const d = r.eventTime.getDay();
+    const h = r.eventTime.getHours();
+    mat[d][h]++;
+  });
+  return mat;
+}
+
 function analyzeProactivePRB(rows){
   const suggestions = [];
   // 1. Check for recurrence: Asset + Alarm > 3 times
@@ -719,15 +833,32 @@ function render(){
 
   const base = MODE_DEDUP ? deduplicate(RAW) : RAW.slice();
 
+  // Re-compute clusters on base set (so filtering doesn't shift clusters weirdly,
+  // though optimally should be on RAW, but base is fine)
+  CLUSTER_MAP = computeClusters(base);
+
   // Apply filters
+  const fStart = FILTER.start ? new Date(FILTER.start+'T00:00:00') : null;
+  const fEnd = FILTER.end ? new Date(FILTER.end+'T23:59:59') : null;
+
   VIEW = base.filter(r=>{
     const text = (r.number+' '+r.alarm+' '+r.action+' '+(r.closeNotes||'')+' '+(r.short||'')).toLowerCase();
     const okQ = !FILTER.q || text.includes(FILTER.q);
-    const okA = !FILTER.alarm || r.alarm===FILTER.alarm;
+
+    // Cluster-aware alarm filter
+    const myCluster = CLUSTER_MAP.get(r.alarm) || r.alarm;
+    const okA = !FILTER.alarm || myCluster===FILTER.alarm;
+
     const okR = !FILTER.action || r.action===FILTER.action;
-    const okM = !FILTER.month || r.month===FILTER.month;
+    const okAsset = !FILTER.asset || r.asset===FILTER.asset;
     const okMatrix = !FILTER.matrix || (r.problema===FILTER.matrix.p && r.solucao===FILTER.matrix.s);
-    return okQ && okA && okR && okM && okMatrix;
+
+    let okDate = true;
+    if(r.eventTime){
+      if(fStart && r.eventTime < fStart) okDate = false;
+      if(fEnd && r.eventTime > fEnd) okDate = false;
+    }
+    return okQ && okA && okR && okAsset && okMatrix && okDate;
   });
 
   // Metrics
@@ -776,7 +907,15 @@ function render(){
   const mc = monthCounts(VIEW);
   barChart(document.getElementById('cMonth'), mc.labels, mc.values, {color:'#4ea1ff'});
 
-  const types = countsBy(VIEW,'alarm');
+  // Clustered Alarm Types
+  // We need to count by cluster leader, not raw alarm
+  const typeMap = new Map();
+  VIEW.forEach(r=>{
+    const k = CLUSTER_MAP.get(r.alarm) || r.alarm;
+    typeMap.set(k, (typeMap.get(k)||0)+1);
+  });
+  const types = [...typeMap.entries()].sort((a,b)=>b[1]-a[1]);
+
   hbarChart(document.getElementById('cType'), types.slice(0,8).map(x=>x[0]), types.slice(0,8).map(x=>x[1]), {color:'#ffb020'});
 
   const hist = durationHistogram(VIEW);
@@ -784,6 +923,10 @@ function render(){
 
   const mx = buildMatrix(VIEW);
   matrixChart(document.getElementById('cMatrix'), mx.p, mx.s, mx.mat);
+
+  // Heatmap
+  const hmData = analyzeHeatmap(VIEW);
+  heatmapChart(document.getElementById('cHeatmap'), hmData);
 
   // Asset Recurrence Chart
   const assetRec = analyzeAssetRecurrence(VIEW);
@@ -795,10 +938,22 @@ function render(){
   if(!suggestions.length) prbEl.innerHTML = '<span class="muted">Nenhuma sugestão encontrada para o filtro atual.</span>';
   else prbEl.innerHTML = suggestions.map(s=>`<div class="callout" style="border-left-color:var(--warn);background:rgba(240,179,35,.1)">${s}</div>`).join('');
 
-  // Filters selects
-  fillSelect('fAlarm', uniq(base.map(x=>x.alarm)));
+  // Filters selects - Populate fAlarm with CLUSTERS, not raw
+  fillSelect('fAlarm', uniq([...new Set(base.map(x=>CLUSTER_MAP.get(x.alarm)||x.alarm))]));
   fillSelect('fRes', uniq(base.map(x=>x.action)));
-  fillSelect('fMonth', uniq(base.map(x=>x.month)));
+
+  // Set date inputs boundaries if empty
+  if(!FILTER.start && !FILTER.end && base.length){
+    const times = base.filter(x=>x.eventTime).map(x=>x.eventTime.getTime());
+    if(times.length){
+      const minT = new Date(Math.min(...times));
+      const maxT = new Date(Math.max(...times));
+      // Just set placeholders or values? Let's leave values empty to show "All time"
+      // but we could set min/max attributes on inputs.
+      document.getElementById('fStart').min = minT.toISOString().split('T')[0];
+      document.getElementById('fEnd').max = maxT.toISOString().split('T')[0];
+    }
+  }
 
   // Timeline (top 10)
   renderTimeline(VIEW);
@@ -860,14 +1015,26 @@ function attachClicks(){
   const cMonth = document.getElementById('cMonth');
   const cType = document.getElementById('cType');
   const cMatrix = document.getElementById('cMatrix');
+  const cAsset = document.getElementById('cAsset');
 
+  // Since Month chart is no longer the primary filter (Date Range is), keeping it as a "zoom to month" is fine
+  // but we should probably set start/end to that month boundaries.
   cMonth.addEventListener('click', (ev)=>{
     const hit = hitBar(cMonth, ev);
     if(hit==null) return;
     const labels = monthCounts(VIEW).labels;
-    const label = labels[hit];
-    if(label){ FILTER.month = label; FILTER.matrix=null; syncControls(); render(); }
+    const label = labels[hit]; // "YYYY-MM"
+    if(label){
+      // Set date range to this month
+      const [y, m] = label.split('-');
+      const lastDay = new Date(y, m, 0).getDate();
+      FILTER.start = `${y}-${m}-01`;
+      FILTER.end = `${y}-${m}-${lastDay}`;
+      FILTER.matrix=null;
+      syncControls(); render();
+    }
   });
+
   cType.addEventListener('click', (ev)=>{
     const hit = hitBar(cType, ev);
     if(hit==null) return;
@@ -884,6 +1051,15 @@ function attachClicks(){
     FILTER.matrix = {p,s};
     syncControls();
     render();
+  });
+
+  cAsset.addEventListener('click', (ev)=>{
+    const hit = hitBar(cAsset, ev);
+    if(hit==null) return;
+    // assetRec is recalculated in render, we need to access it similarly
+    const assetRec = analyzeAssetRecurrence(VIEW);
+    const label = assetRec[hit]?.[0];
+    if(label){ FILTER.asset = label; syncControls(); render(); }
   });
 }
 
@@ -914,11 +1090,12 @@ function syncControls(){
   document.getElementById('q').value = FILTER.q || '';
   document.getElementById('fAlarm').value = FILTER.alarm || '';
   document.getElementById('fRes').value = FILTER.action || '';
-  document.getElementById('fMonth').value = FILTER.month || '';
+  document.getElementById('fStart').value = FILTER.start || '';
+  document.getElementById('fEnd').value = FILTER.end || '';
 }
 
 function clearFilters(){
-  FILTER = { q:'', alarm:'', action:'', month:'', matrix:null };
+  FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', matrix:null };
   syncControls();
   render();
 }
@@ -967,28 +1144,77 @@ document.getElementById('loadBtn').addEventListener('click', async ()=>{
   loadFromJSON(json);
 });
 
-['q','fAlarm','fRes','fMonth'].forEach(id=>{
-  document.getElementById(id).addEventListener('input', (e)=>{
+['q','fAlarm','fRes','fStart','fEnd'].forEach(id=>{
+  const handler = (e)=>{
     if(id==='q') FILTER.q = (e.target.value||'').toLowerCase();
     if(id==='fAlarm') FILTER.alarm = e.target.value;
     if(id==='fRes') FILTER.action = e.target.value;
-    if(id==='fMonth') FILTER.month = e.target.value;
+    if(id==='fStart') FILTER.start = e.target.value;
+    if(id==='fEnd') FILTER.end = e.target.value;
     FILTER.matrix = null;
     render();
-  });
-  document.getElementById(id).addEventListener('change', (e)=>{
-    if(id==='fAlarm') FILTER.alarm = e.target.value;
-    if(id==='fRes') FILTER.action = e.target.value;
-    if(id==='fMonth') FILTER.month = e.target.value;
-    FILTER.matrix = null;
-    render();
-  });
+  };
+  document.getElementById(id).addEventListener('input', handler);
+  document.getElementById(id).addEventListener('change', handler);
 });
 
 document.getElementById('dedupToggle').addEventListener('change', ()=>render());
 document.getElementById('clearFilter').addEventListener('click', ()=>clearFilters());
 document.getElementById('exportBtn').addEventListener('click', ()=>exportCSV());
 document.getElementById('printBtn').addEventListener('click', ()=>window.print());
+
+async function downloadPDF(){
+  const btn = document.getElementById('pdfBtn');
+  const oldText = btn.textContent;
+  btn.textContent = 'Gerando...';
+  btn.disabled = true;
+
+  try {
+    const { jsPDF } = window.jspdf;
+    // Capture the whole wrapper
+    const element = document.querySelector('.wrap');
+
+    const canvas = await html2canvas(element, {
+      scale: 1.5,
+      useCORS: true,
+      backgroundColor: '#121212', // ensure dark bg
+      logging: false
+    });
+
+    const imgData = canvas.toDataURL('image/png');
+    const pdf = new jsPDF('p', 'mm', 'a4');
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+
+    const imgProps = pdf.getImageProperties(imgData);
+    const imgH = (imgProps.height * pdfW) / imgProps.width;
+
+    let heightLeft = imgH;
+    let position = 0;
+
+    // First page
+    pdf.addImage(imgData, 'PNG', 0, position, pdfW, imgH);
+    heightLeft -= pdfH;
+
+    // Subsequent pages
+    while (heightLeft > 0) {
+      position -= pdfH; // move image up
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, position, pdfW, imgH);
+      heightLeft -= pdfH;
+    }
+
+    pdf.save('dashboard_executivo.pdf');
+
+  } catch(err){
+    console.error(err);
+    alert('Erro ao gerar PDF. Verifique o console.');
+  } finally {
+    btn.textContent = oldText;
+    btn.disabled = false;
+  }
+}
+document.getElementById('pdfBtn').addEventListener('click', downloadPDF);
 
 window.addEventListener('resize', ()=>render());
 
