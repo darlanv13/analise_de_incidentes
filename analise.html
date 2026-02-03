@@ -92,6 +92,90 @@
       .printSmall{font-size:11px;color:#444}
       a{color:#0b5fff;text-decoration:none}
     }
+
+    /* FMDS Report Styles (Hidden by default, used for PDF generation) */
+    .fmds-layout {
+      position: absolute; top: -9999px; left: -9999px; /* Off-screen */
+      width: 1500px; /* High res for capture */
+      background: #fff; color: #333;
+      font-family: 'Segoe UI', sans-serif;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 0;
+      border: 1px solid #ccc;
+    }
+    .fmds-header {
+      background: #777; /* Gray bar */
+      display: grid;
+      grid-template-columns: 3fr 1fr;
+      color: #fff;
+    }
+    .fmds-title-bar {
+      background: #777;
+      padding: 10px 20px;
+      font-size: 24px; font-weight: 300;
+    }
+    .fmds-date-bar {
+      background: #007E7A; /* Vale Teal */
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; font-weight: bold;
+    }
+    .fmds-body {
+      padding: 15px;
+      background: #eee;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+    }
+    .fmds-panel {
+      background: #fff;
+      border: 2px solid #005a57;
+      border-radius: 8px;
+      overflow: hidden;
+      display: flex; flex-direction: column;
+    }
+    .fmds-panel-head {
+      background: #005a57; color: #fff;
+      text-align: center; padding: 8px;
+      font-size: 18px; font-weight: bold;
+    }
+    .fmds-panel-content {
+      padding: 10px;
+      flex: 1;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .fmds-chart-row {
+      height: 220px; position: relative;
+      border: 1px solid #ddd; background: #fff;
+      margin-bottom: 10px;
+    }
+    .fmds-kpi-row {
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+      margin-bottom: 10px;
+    }
+    .fmds-kpi-box {
+      background: #007E7A; color: #fff;
+      padding: 5px; text-align: center;
+      font-size: 11px; display: flex; flex-direction: column; justify-content: center;
+    }
+    .fmds-kpi-box strong { font-size: 16px; display: block; }
+    .fmds-sub-charts {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+      height: 180px;
+    }
+    .fmds-table {
+      width: 100%; border-collapse: collapse;
+      font-size: 11px;
+    }
+    .fmds-table th { background: #000; color: #fff; padding: 4px; text-align: left; }
+    .fmds-table td { border: 1px solid #ccc; padding: 4px; vertical-align: middle; }
+    .fmds-table tr:nth-child(even) { background: #f2f2f2; }
+    .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; }
+    .dot-red { background: #d9534f; }
+    .dot-green { background: #5cb85c; }
+
+    .fmds-col-right .fmds-panel { height: 100%; }
+    .action-green { color: #007E7A; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -115,7 +199,7 @@
         <input id="file" type="file" accept=".json" style="display:none" />
 
         <button id="exportBtn" class="btnOk">Exportar CSV (filtro atual)</button>
-        <button id="pdfBtn" class="btnOk">Baixar PDF (Gráficos)</button>
+        <button id="pdfBtn" class="btnOk">Gerar Relatório FMDS</button>
         <button id="printBtn" class="btnWarn">Imprimir (1 página FMDS)</button>
         <label class="small" style="display:flex;align-items:center;gap:8px">
           <input id="dedupToggle" type="checkbox" checked /> Contar eventos deduplicados
@@ -261,6 +345,93 @@
   <div class="printCard">
     <h2>Últimos eventos (amostra)</h2>
     <div class="printSmall" id="pLast">—</div>
+  </div>
+</div>
+
+<!-- FMDS Layout Structure -->
+<div id="fmdsReport" class="fmds-layout">
+  <div class="fmds-header">
+    <div class="fmds-title-bar">Confiabilidade – TELECOM – <span id="fmdsSiteName">Carajás</span></div>
+    <div class="fmds-date-bar" id="fmdsDate">Janeiro – 29</div>
+  </div>
+
+  <div class="fmds-body">
+    <!-- Left Column -->
+    <div style="display:flex; flex-direction:column; gap:10px">
+      <!-- Incidents Tracking -->
+      <div class="fmds-panel">
+        <div class="fmds-panel-head">Acompanhamento dos incidentes</div>
+        <div class="fmds-panel-content">
+          <div class="fmds-chart-row">
+            <div style="position:absolute;top:5px;left:10px;font-size:12px;color:#666">CONTROLE DE EVENTOS</div>
+            <div style="width:100%;height:100%"><canvas id="cFmdsTrend"></canvas></div>
+          </div>
+
+          <div class="fmds-kpi-row">
+            <div class="fmds-kpi-box"><strong id="fkTotal">0</strong>Total de Incidentes</div>
+            <div class="fmds-kpi-box"><strong id="fkOpen">0</strong>Incidentes em Aberto</div>
+            <div class="fmds-kpi-box"><strong id="fkRFO">0%</strong>% RFO</div>
+            <div class="fmds-kpi-box"><strong id="fkFilled">0</strong>INCs com RFO Preenchido</div>
+            <div class="fmds-kpi-box"><strong id="fkAuto">0</strong>Fechados Automaticamente</div>
+          </div>
+
+          <div class="fmds-sub-charts">
+            <div style="border:1px solid #ddd; padding:5px; position:relative">
+              <div style="font-size:10px;margin-bottom:5px;color:#666">QUANTIDADE DE INCIDENTES POR SITE</div>
+              <div style="height:140px;width:100%"><canvas id="cFmdsSite"></canvas></div>
+            </div>
+            <div style="border:1px solid #ddd; padding:5px; position:relative">
+              <div style="font-size:10px;margin-bottom:5px;color:#666">QUANTIDADE DE INCIDENTES POR CATEGORIA DE ATIVO</div>
+              <div style="height:140px;width:100%"><canvas id="cFmdsCat"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recurrence -->
+      <div class="fmds-panel">
+        <div class="fmds-panel-head" style="background:#fff; color:#000; border-bottom:2px solid #007E7A; padding:5px">RECORRÊNCIA POR ATIVO</div>
+        <div class="fmds-panel-content" style="padding:0">
+          <table class="fmds-table">
+            <thead>
+              <tr style="background:#007E7A"><th>Ativo</th><th>Nº de INCs</th><th>EOS</th></tr>
+            </thead>
+            <tbody id="tFmdsRec"></tbody>
+          </table>
+          <!-- Legend -->
+          <div style="padding:10px; display:flex; gap:15px; font-size:11px; align-items:center; background:#fff">
+            <strong>Legenda EOS</strong>
+            <div style="display:flex;align-items:center;gap:4px"><span class="status-dot dot-green"></span> Fim em > 2 anos</div>
+            <div style="display:flex;align-items:center;gap:4px"><span class="status-dot dot-red"></span> Sem suporte</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column -->
+    <div class="fmds-col-right" style="display:flex; flex-direction:column; gap:10px">
+      <!-- INC Analysis -->
+      <div class="fmds-panel">
+        <div class="fmds-panel-head">Analise de INC</div>
+        <div class="fmds-panel-content" style="padding:0; overflow:hidden">
+          <table class="fmds-table">
+            <thead><tr><th width="15%">INC</th><th>Descrição</th><th width="25%">Ação</th></tr></thead>
+            <tbody id="tFmdsInc"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Repetibilidade -->
+      <div class="fmds-panel" style="flex:1">
+        <div class="fmds-panel-head">Repetibilidade</div>
+        <div class="fmds-panel-content" style="padding:0; overflow:hidden">
+           <table class="fmds-table">
+            <thead><tr><th width="20%">ATIVO</th><th>Descrição</th><th width="20%">Ação</th></tr></thead>
+            <tbody id="tFmdsRep"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -719,6 +890,146 @@ function analyzeProactivePRB(rows){
   });
 
   return suggestions.slice(0, 8); // Limit to 8 suggestions
+}
+
+/* ====== FMDS Report Logic ====== */
+function classifyAsset(name){
+  if(!name) return {site:'Outros', cat:'Outros'};
+  name = name.toUpperCase();
+
+  let site = 'Outros';
+  if(name.startsWith('BRCKS')) site = 'Carajás';
+  else if(name.startsWith('BRBEL')) site = 'Belém';
+  else if(name.startsWith('BRMAB')) site = 'Marabá';
+  else if(name.startsWith('BRPR')) site = 'Parauapebas';
+  else if(name.startsWith('BRSL')) site = 'São Luís';
+  else if(name.startsWith('BR')) site = 'Regional ' + name.substr(2,3);
+
+  let cat = 'Outros';
+  if(name.includes('SW') || name.includes('SWITCH')) cat = 'Switch';
+  else if(name.includes('RT') || name.includes('ROUTER')) cat = 'Router';
+  else if(name.includes('AP') || name.includes('WIFI') || name.includes('AIR')) cat = 'Access Point';
+  else if(name.includes('MW') || name.includes('RADIO') || name.includes('LINK')) cat = 'Radio/Link';
+  else if(name.includes('OLT')) cat = 'OLT';
+  else if(name.includes('SRV') || name.includes('SERVER')) cat = 'Server';
+
+  return {site, cat};
+}
+
+function getDailyTrend(rows){
+  const days = Array.from({length:31}, (_,i)=>i+1);
+  const counts = new Array(31).fill(0);
+  rows.forEach(r=>{
+    if(r.eventTime) counts[r.eventTime.getDate()-1]++;
+  });
+  return {labels: days, values: counts};
+}
+
+function getSiteCounts(rows){
+  const m = new Map();
+  rows.forEach(r=>{
+    const {site} = classifyAsset(r.asset);
+    m.set(site, (m.get(site)||0)+1);
+  });
+  const sorted = [...m.entries()].sort((a,b)=>b[1]-a[1]);
+  return {labels: sorted.map(x=>x[0]), values: sorted.map(x=>x[1])};
+}
+
+function getCategoryCounts(rows){
+  const m = new Map();
+  rows.forEach(r=>{
+    const {cat} = classifyAsset(r.asset);
+    m.set(cat, (m.get(cat)||0)+1);
+  });
+  const sorted = [...m.entries()].sort((a,b)=>b[1]-a[1]);
+  return {labels: sorted.map(x=>x[0]), values: sorted.map(x=>x[1])};
+}
+
+function renderFMDS(rows){
+  // 1. Header
+  const first = rows.filter(r=>r.eventTime).sort((a,b)=>a.eventTime-b.eventTime)[0]?.eventTime;
+  if(first){
+    const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    document.getElementById('fmdsDate').textContent = `${months[first.getMonth()]} – ${first.getFullYear().toString().substr(2)}`;
+  }
+
+  // 2. Trend Chart
+  const trend = getDailyTrend(rows);
+  createChart('cFmdsTrend', 'line', {
+    labels: trend.labels,
+    datasets: [{
+      label: 'Incidentes',
+      data: trend.values,
+      borderColor: '#007E7A',
+      backgroundColor: 'rgba(0,126,122,0.1)',
+      tension: 0.4, fill: true, pointRadius: 2
+    }]
+  }, {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: {display: false} },
+    scales: { x: {grid:{display:false}}, y: {beginAtZero:true} }
+  });
+
+  // 3. KPIs
+  const total = rows.length;
+  const open = rows.filter(r=> !r.mttrSec ).length; // If no MTTR, likely open or ongoing
+  const withRFO = rows.filter(r=> r.closeNotes && r.closeNotes.length > 20).length; // Heuristic
+  const rfoRate = total ? (withRFO/total)*100 : 0;
+  const auto = rows.filter(r=> (r.closeNotes||'').toLowerCase().includes('automatic') || r.action.includes('Normalizado')).length;
+
+  document.getElementById('fkTotal').textContent = total;
+  document.getElementById('fkOpen').textContent = open;
+  document.getElementById('fkRFO').textContent = rfoRate.toFixed(1)+'%';
+  document.getElementById('fkFilled').textContent = withRFO;
+  document.getElementById('fkAuto').textContent = auto;
+
+  // 4. Sub Charts
+  const sites = getSiteCounts(rows);
+  createChart('cFmdsSite', 'bar', {
+    labels: sites.labels,
+    datasets: [{ data: sites.values, backgroundColor: '#007E7A' }]
+  }, { indexAxis: 'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{display:false}} });
+
+  const cats = getCategoryCounts(rows);
+  createChart('cFmdsCat', 'bar', {
+    labels: cats.labels,
+    datasets: [{ data: cats.values, backgroundColor: '#007E7A' }]
+  }, { indexAxis: 'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{x:{display:false}} });
+
+  // 5. Recurrence Table
+  const rec = analyzeAssetRecurrence(rows).slice(0, 8);
+  const tRec = document.getElementById('tFmdsRec');
+  tRec.innerHTML = rec.map(([asset, count])=>`
+    <tr>
+      <td>${asset}</td>
+      <td style="text-align:center">${count}</td>
+      <td style="text-align:center"><span class="status-dot dot-green"></span></td>
+    </tr>`).join('');
+
+  // 6. INC Analysis Table (Top 5 by MTTR)
+  const topIncs = rows.slice().sort((a,b)=>(b.mttrSec||0)-(a.mttrSec||0)).slice(0, 5);
+  const tInc = document.getElementById('tFmdsInc');
+  tInc.innerHTML = topIncs.map(r=>`
+    <tr>
+      <td>${r.number}<div style="font-size:9px;color:#666">${r.asset}</div></td>
+      <td>${Z.compact(r.closeNotes || r.short, 80)}</td>
+      <td class="action-green">${Z.compact(r.action, 30)}</td>
+    </tr>`).join('');
+
+  // 7. Repetibilidade Table (Proactive PRB format)
+  const suggestions = analyzeProactivePRB(rows).slice(0,4);
+  const tRep = document.getElementById('tFmdsRep');
+  tRep.innerHTML = suggestions.map(s=>{
+    const mAsset = s.match(/<b>(.*?)<\/b>/);
+    const asset = mAsset ? mAsset[1] : '—';
+    const desc = s.replace(/<[^>]*>/g, '');
+    return `
+    <tr>
+      <td>${asset}</td>
+      <td>${desc}</td>
+      <td class="action-green">Investigar</td>
+    </tr>`;
+  }).join('');
 }
 
 /* ====== Render ====== */
@@ -1195,49 +1506,56 @@ document.getElementById('printBtn').addEventListener('click', ()=>window.print()
 async function downloadPDF(){
   const btn = document.getElementById('pdfBtn');
   const oldText = btn.textContent;
-  btn.textContent = 'Gerando...';
+  btn.textContent = 'Gerando FMDS...';
   btn.disabled = true;
 
   try {
-    const { jsPDF } = window.jspdf;
-    // Capture the whole wrapper
-    const element = document.querySelector('.wrap');
+    // 1. Prepare Report
+    renderFMDS(VIEW); // Render current filtered view
+
+    // Wait for charts to animate/render
+    await new Promise(r => setTimeout(r, 800));
+
+    const element = document.getElementById('fmdsReport');
+
+    // 2. Capture
+    // Temporarily bring into view if needed (html2canvas handles off-screen mostly ok but Z-index helps)
+    element.style.top = '0';
+    element.style.left = '0';
+    element.style.zIndex = '9999';
 
     const canvas = await html2canvas(element, {
-      scale: 1.5,
+      scale: 2, // High quality
       useCORS: true,
-      backgroundColor: '#121212', // ensure dark bg
-      logging: false
+      backgroundColor: '#ffffff',
+      logging: false,
+      windowWidth: 1600,
+      windowHeight: 1200
     });
 
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('p', 'mm', 'a4');
+    // Hide again
+    element.style.top = '-9999px';
+    element.style.left = '-9999px';
+    element.style.zIndex = '';
+
+    // 3. Generate PDF (Landscape A4)
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('l', 'mm', 'a4'); // Landscape
     const pdfW = pdf.internal.pageSize.getWidth();
     const pdfH = pdf.internal.pageSize.getHeight();
 
+    const imgData = canvas.toDataURL('image/png');
     const imgProps = pdf.getImageProperties(imgData);
+
+    // Fit width
     const imgH = (imgProps.height * pdfW) / imgProps.width;
 
-    let heightLeft = imgH;
-    let position = 0;
-
-    // First page
-    pdf.addImage(imgData, 'PNG', 0, position, pdfW, imgH);
-    heightLeft -= pdfH;
-
-    // Subsequent pages
-    while (heightLeft > 0) {
-      position -= pdfH; // move image up
-      pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, position, pdfW, imgH);
-      heightLeft -= pdfH;
-    }
-
-    pdf.save('dashboard_executivo.pdf');
+    pdf.addImage(imgData, 'PNG', 0, 0, pdfW, imgH);
+    pdf.save('relatorio_fmds.pdf');
 
   } catch(err){
     console.error(err);
-    alert('Erro ao gerar PDF. Verifique o console.');
+    alert('Erro ao gerar PDF FMDS. Verifique o console.');
   } finally {
     btn.textContent = oldText;
     btn.disabled = false;
