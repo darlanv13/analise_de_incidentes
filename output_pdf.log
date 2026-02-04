@@ -1,0 +1,12 @@
+CONSOLE: Matrix Data: {p: Array(1), s: Array(1), mat: Array(1)}
+CONSOLE: Asset Recurrence: [Array(2)]
+CONSOLE: Matrix Data: {p: Array(1), s: Array(1), mat: Array(1)}
+CONSOLE: Asset Recurrence: [Array(2), Array(2), Array(2), Array(2), Array(2), Array(2), Array(2)]
+Clicking PDF button...
+CONSOLE: ReferenceError: analyzeProactivePRB is not defined
+    at renderFMDS (file:///app/analise.html:1154:23)
+    at HTMLButtonElement.downloadPDF (file:///app/analise.html:1661:5)
+PDF Generation Failed: Timeout 10000ms exceeded while waiting for event "download"
+=========================== logs ===========================
+waiting for event "download"
+============================================================

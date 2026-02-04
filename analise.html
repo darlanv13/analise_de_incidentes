@@ -1150,20 +1150,29 @@ function renderFMDS(rows){
       <td class="action-green">${Z.escape(Z.compact(r.action, 30))}</td>
     </tr>`).join('');
 
-  // 7. Repetibilidade Table (Proactive PRB format)
-  const suggestions = analyzeProactivePRB(rows).slice(0,4);
+  // 7. Repetibilidade Table (Smart Insights format)
+  const suggestions = analyzeSmartPatterns(rows).slice(0,4);
   const tRep = document.getElementById('tFmdsRep');
   tRep.innerHTML = suggestions.map(s=>{
     // Asset is usually the second bold tag (Label is first)
+    // Format: <b>Label:</b> ... <b>Asset</b> ...
     const matches = s.match(/<b>(.*?)<\/b>/g);
     let asset = '—';
+    // Try to find the asset name in the second bold tag, or fallback
     if(matches && matches.length >= 2) asset = matches[1].replace(/<\/?b>/g, '');
     else if(matches && matches.length === 1) asset = matches[0].replace(/<\/?b>/g, '');
 
-    const desc = s.replace(/<[^>]*>/g, '');
+    // Cleanup description (remove HTML tags)
+    let desc = s.replace(/<[^>]*>/g, '');
+    // Ensure the label is clear
+    const labelMatch = s.match(/<b>(.*?)<\/b>/);
+    const label = labelMatch ? labelMatch[1].replace(/<\/?b>/g, '').replace(/:/,'') : 'Insight';
+
+    // If it's a Mass Event, asset might be "5 ativos" or similar, which is fine.
+
     return `
     <tr>
-      <td>${asset}</td>
+      <td><strong>${asset}</strong></td>
       <td>${desc}</td>
       <td class="action-green">Investigar</td>
     </tr>`;

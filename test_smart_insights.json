@@ -1,0 +1,17 @@
+[
+  {"number":"INC001","short_description":"Link Down","description":"Mass Event 1 Equipment: ROUTER-01","opened_at":"2025-10-20 10:00:00","mttrSec":300},
+  {"number":"INC002","short_description":"Link Down","description":"Mass Event 2 Equipment: ROUTER-02","opened_at":"2025-10-20 10:01:00","mttrSec":300},
+  {"number":"INC003","short_description":"Link Down","description":"Mass Event 3 Equipment: SWITCH-01","opened_at":"2025-10-20 10:02:00","mttrSec":300},
+  {"number":"INC004","short_description":"Link Down","description":"Mass Event 4 Equipment: RADIO-01","opened_at":"2025-10-20 10:03:00","mttrSec":300},
+  {"number":"INC005","short_description":"Link Down","description":"Mass Event 5 Equipment: SERVER-01","opened_at":"2025-10-20 10:04:00","mttrSec":300},
+
+  {"number":"INC010","short_description":"Power Fail","description":"Chronic 1 Equipment: CHRONIC-ASSET","opened_at":"2025-10-01 10:00:00","mttrSec":3600},
+  {"number":"INC011","short_description":"Power Fail","description":"Chronic 2 Equipment: CHRONIC-ASSET","opened_at":"2025-10-05 10:00:00","mttrSec":3600},
+  {"number":"INC012","short_description":"Power Fail","description":"Chronic 3 Equipment: CHRONIC-ASSET","opened_at":"2025-10-10 10:00:00","mttrSec":3600},
+
+  {"number":"INC020","short_description":"Port Flap","description":"Flap 1 Equipment: FLAP-ASSET","opened_at":"2025-10-21 12:00:00","mttrSec":60},
+  {"number":"INC021","short_description":"Port Flap","description":"Flap 2 Equipment: FLAP-ASSET","opened_at":"2025-10-21 12:05:00","mttrSec":60},
+  {"number":"INC022","short_description":"Port Flap","description":"Flap 3 Equipment: FLAP-ASSET","opened_at":"2025-10-21 12:10:00","mttrSec":60},
+  {"number":"INC023","short_description":"Port Flap","description":"Flap 4 Equipment: FLAP-ASSET","opened_at":"2025-10-21 12:15:00","mttrSec":60},
+  {"number":"INC024","short_description":"Port Flap","description":"Flap 5 Equipment: FLAP-ASSET","opened_at":"2025-10-21 12:20:00","mttrSec":60}
+]
