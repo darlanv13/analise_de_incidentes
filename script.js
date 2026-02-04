@@ -286,6 +286,7 @@ function buildRows(records){
 
     return {
       number: Z.safe(r,'number',''),
+      category: Z.safe(r,'category',''),
       childCount,
       asset,
       eventTime,
@@ -310,6 +311,12 @@ function buildRows(records){
     if(!x.number) return false;
     const s = (x.short || '');
     if(/\bOT\s*[|]?\b/i.test(s)) return false; 
+
+    // Filter by Category: Must be Network if category is present
+    // (Allows empty category to pass to be safe, or strict? "tudo ... que não é Network")
+    // Let's be strict if the field exists.
+    if(x.category && x.category !== 'Network') return false;
+
     return true;
   });
 }
@@ -1238,7 +1245,8 @@ function normalizeRecords(records) {
       made_sla: '',
       zabbix_problem_id: '',
       zabbix: null,
-      child_incidents: r['child_incidents'] // Pass through if present (unlikely in PT export but good practice)
+      child_incidents: r['child_incidents'], // Pass through if present
+      category: r['category'] // Pass through category if present in source
     };
   });
 }
