@@ -795,7 +795,7 @@ function render(){
   const fEnd = FILTER.end ? new Date(FILTER.end+'T23:59:59') : null;
 
   const VIEW_RAW = RAW.filter(r=>{
-    const text = (r.number+' '+r.alarm+' '+r.action+' '+(r.closeNotes||'')+' '+(r.short||'')).toLowerCase();
+    const text = (r.number+' '+r.alarm+' '+r.action+' '+(r.closeNotes||'')+' '+(r.short||'')+' '+(r.asset||'')).toLowerCase();
     const okQ = !FILTER.q || text.includes(FILTER.q);
     
     const myCluster = CLUSTER_MAP.get(r.alarm) || r.alarm;
