@@ -282,8 +282,11 @@ function buildRows(records){
     // Region Classification
     const region = classifyRegion(sd);
 
+    const childCount = parseInt(Z.safe(r,'child_incidents','0')) || 0;
+
     return {
       number: Z.safe(r,'number',''),
+      childCount,
       asset,
       eventTime,
       month: eventTime ? `${eventTime.getFullYear()}-${String(eventTime.getMonth()+1).padStart(2,'0')}` : '',
@@ -816,7 +819,8 @@ function render(){
   VIEW = MODE_DEDUP ? deduplicate(VIEW_RAW) : VIEW_RAW;
 
   if(FILTER.groupedOnly){
-    VIEW = VIEW.filter(r => r._count && r._count > 1);
+    // Filter by calculated group size OR raw child_incidents field
+    VIEW = VIEW.filter(r => (r._count && r._count > 1) || (r.childCount && r.childCount > 0));
   }
 
   // 4. Run Smart Insights on VIEW_RAW (always full resolution)
@@ -1126,9 +1130,10 @@ function renderTimeline(rows){
   if(!items.length){ el.innerHTML = '<span class="muted">Sem dados.</span>'; return; }
   const html = items.map(r=>{
     const ticketInfo = (r._tickets && r._tickets.length>1) ? ` <span class="pill warn" title="Tickets agrupados">${r._tickets.length} tickets</span>` : '';
+    const childInfo = (r.childCount > 0) ? ` <span class="pill" title="Incidentes Secundários (Child)">${r.childCount} filhos</span>` : '';
     const z = r.zabbix?.url ? `<a href="${r.zabbix.url}" target="_blank">Zabbix</a>` : '';
     return `<div style="margin-bottom:8px">
-      <span class="mono">${Z.fmtDT(r.eventTime)}</span> — <b>${r.alarm}</b> — ${r.action} — <span class="mono">${r.number}</span>${ticketInfo}
+      <span class="mono">${Z.fmtDT(r.eventTime)}</span> — <b>${r.alarm}</b> — ${r.action} — <span class="mono">${r.number}</span>${ticketInfo}${childInfo}
       <span class="small" style="margin-left:8px">${Z.fmtDur(r.mttrSec)} ${z?(' • '+z):''}</span>
     </div>`;
   }).join('');
@@ -1149,6 +1154,7 @@ function renderTable(rows){
         ${r.number}
         ${badges ? '<div>'+badges+'</div>' : ''}
         ${r._tickets && r._tickets.length>1 ? `<div class="small">Agrupa: ${r._tickets.join(', ')}</div>`:''}
+        ${r.childCount > 0 ? `<div class="small" style="color:var(--ok)"><b>${r.childCount}</b> incidentes filhos</div>`:''}
       </td>
       <td class="mono">${r.eventTime?Z.fmtDT(r.eventTime):''}<div class="small">${r.month||''}</div></td>
       <td>${r.alarm}</td>
@@ -1231,7 +1237,8 @@ function normalizeRecords(records) {
       u_vale_slm_tte_notes: '',
       made_sla: '',
       zabbix_problem_id: '',
-      zabbix: null
+      zabbix: null,
+      child_incidents: r['child_incidents'] // Pass through if present (unlikely in PT export but good practice)
     };
   });
 }
