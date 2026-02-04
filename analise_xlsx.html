@@ -30,9 +30,40 @@
   </header>
 
   <div class="grid">
+    <!-- Smart Insights -->
+    <div class="card" style="grid-column:span 12">
+      <h2>Insights Inteligentes & Sugestões PRB</h2>
+      <div id="smartList" class="small" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto">
+        <span class="muted">Carregue um arquivo para ver insights.</span>
+      </div>
+    </div>
+
+    <!-- Recurrence Analysis -->
+    <div class="card" style="grid-column:span 6">
+      <h2>Top Ativos Recorrentes</h2>
+      <div class="tableWrap">
+        <table id="tblRec">
+          <thead><tr><th>Ativo</th><th>Ocorrências</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Repeatability Analysis -->
+    <div class="card" style="grid-column:span 6">
+      <h2>Repetibilidade de Falhas (Recentes)</h2>
+      <div class="tableWrap">
+        <table id="tblRep">
+          <thead><tr><th>Ativo</th><th>Alarme</th><th>Ação</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Keywords Results -->
     <div class="card" style="grid-column:span 12">
       <div class="toolbar">
-        <h2 style="margin:0">Resultados da Busca <span id="countDisplay"></span></h2>
+        <h2 style="margin:0">Resultados da Busca (Keywords) <span id="countDisplay"></span></h2>
         <button id="exportBtn" class="btnOk" style="display:none">Exportar CSV</button>
       </div>
 
