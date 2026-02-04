@@ -219,6 +219,9 @@
         <label class="small" style="display:flex;align-items:center;gap:8px">
           <input id="dedupToggle" type="checkbox" checked /> Contar eventos deduplicados
         </label>
+    <label class="small" style="display:flex;align-items:center;gap:8px;margin-left:8px">
+      <input id="priorityToggle" type="checkbox" /> <b>Apenas Prioritários (Vivo, WKVE, Flap...)</b>
+    </label>
       </div>
     </div>
 
@@ -291,7 +294,7 @@
     </div>
 
     <div class="card" style="grid-column:span 6">
-      <h2>Sugestões Proativas PRB</h2>
+      <h2>Insights Inteligentes & Sugestões PRB</h2>
       <div id="prbList" class="small" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto"></div>
     </div>
 
@@ -319,7 +322,7 @@
         <table id="tbl">
           <thead>
             <tr>
-              <th>Incidente</th>
+              <th>Incidente / Tags</th>
               <th>Data (evento)</th>
               <th>Tipo</th>
               <th>Ação</th>
@@ -624,9 +627,40 @@ function buildMatrixData(matrix, rowLabels, colLabels){
 /* ====== State ====== */
 let RAW = [];       // tickets raw rows
 let VIEW = [];      // after dedup and filters
-let FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', matrix:null };
+let FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', matrix:null, priorityOnly:false };
 let CLUSTER_MAP = new Map(); // original -> leader
 let MODE_DEDUP = true;
+
+/* ====== Priority Keywords ====== */
+const PRIORITY_KEYWORDS = [
+  // Short Description triggers
+  { term: 'flaaping', label: 'Flapping', source: 'short' },
+  { term: 'flapping', label: 'Flapping', source: 'short' },
+  { term: 'portpown', label: 'Port Down', source: 'short' },
+  { term: 'port down', label: 'Port Down', source: 'short' },
+  { term: 'wkve',     label: 'WKVE',      source: 'short' },
+  { term: 'vivo',     label: 'Vivo',      source: 'short' },
+  { term: 'it |',     label: 'IT',        source: 'short' },
+  { term: 'it|',      label: 'IT',        source: 'short' },
+
+  // Work Notes triggers (will check closeNotes or raw work_notes if added)
+  { term: 'fibra optica', label: 'Fibra Óptica', source: 'notes' },
+  { term: 'vivo',         label: 'Vivo',         source: 'notes' },
+  { term: 'wkve',         label: 'WKVE',         source: 'notes' },
+  { term: 'operadora',    label: 'Operadora',    source: 'notes' }
+];
+
+function detectPriorityTags(short, notes){
+  const found = new Set();
+  const sText = (short||'').toLowerCase();
+  const nText = (notes||'').toLowerCase();
+
+  PRIORITY_KEYWORDS.forEach(pk => {
+    if(pk.source === 'short' && sText.includes(pk.term)) found.add(pk.label);
+    if(pk.source === 'notes' && nText.includes(pk.term)) found.add(pk.label);
+  });
+  return Array.from(found).sort();
+}
 
 /* ====== Build rows ====== */
 function buildRows(records){
@@ -636,6 +670,7 @@ function buildRows(records){
     const ttn = Z.safe(r,'u_vale_slm_ttn_notes','');
     const tte = Z.safe(r,'u_vale_slm_tte_notes','');
     const closeNotes = Z.safe(r,'close_notes','');
+    const workNotes = Z.safe(r,'work_notes',''); // Used for analysis
 
     const opened = Z.parseDate(Z.safe(r,'opened_at',''));
     const workStart = Z.parseDate(Z.safe(r,'work_start',''));
@@ -665,6 +700,10 @@ function buildRows(records){
     const problema = fields['Problema'] || '';
     const solucao = fields['Solução'] || '';
 
+    // Tag detection
+    // Combine work_notes + close_notes for the 'notes' check
+    const tags = detectPriorityTags(sd, workNotes + ' ' + closeNotes);
+
     return {
       number: Z.safe(r,'number',''),
       asset,
@@ -681,16 +720,20 @@ function buildRows(records){
       zabbix: link,
       zabbix_problem_id: zpid,
       problema,
-      solucao
+      solucao,
+      tags
     };
   }).filter(x => {
-    // Keep if valid number AND does NOT contain the word "OT" in short description
-    return x.number && !/\bOT\b/i.test(x.short || '');
+    // Exclude OT | or OT
+    if(!x.number) return false;
+    const s = (x.short || '');
+    if(/\bOT\s*[|]?\b/i.test(s)) return false;
+    return true;
   });
 }
 
 function deduplicate(rows){
-  // Group by zabbix_problem_id if present; else by triggerid; else by (alarm + month + near time window)
+  // Group by zabbix_problem_id if present; else by triggerid; else by (asset + alarm + month + near time window)
   const groups = new Map();
   const sorted = rows.slice().sort((a,b)=>(a.eventTime||0)-(b.eventTime||0));
   sorted.forEach(r=>{
@@ -699,7 +742,7 @@ function deduplicate(rows){
     let key = zpid ? `zpid:${zpid}` : (trig ? `tr:${trig}:${r.alarm}` : null);
     if(!key){
       const t = r.eventTime ? Math.floor(r.eventTime.getTime()/ (30*60*1000)) : 0;
-      key = `win:${t}:${r.alarm}`;
+      key = `win:${t}:${r.alarm}:${r.asset}`;
     }
     if(!groups.has(key)) groups.set(key, []);
     groups.get(key).push(r);
@@ -717,6 +760,12 @@ function deduplicate(rows){
     rep.mttrSec = mttrs.length ? Math.max(...mttrs) : rep.mttrSec;
     // merge notes sample
     rep.closeNotes = arr.map(x=>x.closeNotes).filter(Boolean).slice(0,3).join(' | ');
+
+    // Merge tags
+    const allTags = new Set();
+    arr.forEach(a => a.tags.forEach(t => allTags.add(t)));
+    rep.tags = Array.from(allTags).sort();
+
     out.push(rep);
   }
   return out;
@@ -862,10 +911,42 @@ function analyzeHeatmap(rows){
   return mat;
 }
 
-function analyzeProactivePRB(rows){
-  const suggestions = [];
+function analyzeSmartPatterns(rows){
+  const insights = [];
 
-  // Group rows by asset
+  // Sort rows by time
+  const sorted = rows.slice().sort((a,b) => (a.eventTime||0) - (b.eventTime||0));
+
+  // 1. Mass Event Detection (Global)
+  // Logic: > 3 distinct assets failing within a 10 min sliding window
+  if(sorted.length > 5){
+    const windowMs = 15 * 60 * 1000;
+    let i=0;
+    while(i < sorted.length){
+      const start = sorted[i].eventTime;
+      if(!start) { i++; continue; }
+      const assetsInWindow = new Set();
+      let j=i;
+      while(j < sorted.length && (sorted[j].eventTime - start) < windowMs){
+        if(sorted[j].asset && sorted[j].asset !== 'Desconhecido') assetsInWindow.add(sorted[j].asset);
+        j++;
+      }
+
+      if(assetsInWindow.size >= 4){
+         // Found a mass event
+         insights.push({
+           type: 'mass',
+           level: 'critical',
+           html: `<b>Evento Massivo Detectado:</b> ${assetsInWindow.size} ativos distintos falharam entre ${Z.fmtDT(start)} e ${Z.fmtDT(sorted[j-1].eventTime)}. Possível falha de switch core, fibra rompida ou queda de energia na região.`
+         });
+         i = j; // Skip this window to avoid duplicates
+      } else {
+        i++;
+      }
+    }
+  }
+
+  // Group by Asset for other checks
   const byAsset = new Map();
   rows.forEach(r => {
     if(!r.asset || r.asset === 'Desconhecido') return;
@@ -873,74 +954,76 @@ function analyzeProactivePRB(rows){
     byAsset.get(r.asset).push(r);
   });
 
-  // Analyze per asset
   byAsset.forEach((events, asset) => {
-    // Sort by time
     events.sort((a,b) => (a.eventTime||0) - (b.eventTime||0));
 
-    // 1. Recurrence (High Volume)
-    if(events.length > 3) {
-      const topAlarm = countsBy(events, 'alarm')[0];
-      if(topAlarm) {
-        suggestions.push(`<b>Volume Elevado:</b> O ativo <b>${Z.escape(asset)}</b> gerou ${events.length} incidentes (principal: ${Z.escape(topAlarm[0])}). Possível degradação sistêmica.`);
+    // 2. Chronic (Long-term Recurrence)
+    // Logic: Incidents span > 48h AND count >= 3
+    if(events.length >= 3){
+      const first = events[0].eventTime;
+      const last = events[events.length-1].eventTime;
+      if(first && last && (last - first) > 48*3600*1000){
+        insights.push({
+           type: 'chronic',
+           level: 'high',
+           html: `<b>Falha Crônica:</b> O ativo <b>${Z.escape(asset)}</b> apresenta falhas recorrentes há mais de 2 dias (${events.length} eventos). Isso indica degradação progressiva ou reparo ineficaz.`
+        });
       }
     }
 
-    // 2. Flapping (Burst in short time)
-    // Check if > 4 events occur within a 60 min window
-    for(let i=0; i < events.length - 4; i++){
+    // 3. Flapping (Short-term Instability)
+    // Logic: > 4 events in 1h
+    let flapCount = 0;
+    for(let i=0; i < events.length - 3; i++){
       const t1 = events[i].eventTime;
-      const t2 = events[i+4].eventTime;
-      if(t1 && t2 && (t2 - t1) < 60*60*1000) {
-        suggestions.push(`<b>Instabilidade/Flapping:</b> O ativo <b>${Z.escape(asset)}</b> oscilou mais de 4 vezes em menos de 1 hora em ${Z.fmtDT(t1)}. Verificar estabilidade do link/energia.`);
-        break; // Report once per asset
+      const t4 = events[i+3].eventTime; // 4th event
+      if(t1 && t4 && (t4 - t1) < 60*60*1000) {
+        insights.push({
+          type: 'flapping',
+          level: 'critical',
+          html: `<b>Instabilidade/Flapping:</b> O ativo <b>${Z.escape(asset)}</b> oscilou 4+ vezes em < 1h (${Z.fmtDT(t1)}). Verifique loops L2, erros de porta ou energia intermitente.`
+        });
+        flapCount++;
+        break;
       }
     }
 
-    // 3. Ineffective Repair (Fail < 48h after previous resolution)
+    // 4. Ineffective Repair
     for(let i=0; i < events.length - 1; i++){
       const curr = events[i];
       const next = events[i+1];
-      if(curr.eventTime && next.eventTime) {
+      if(curr.eventTime && next.eventTime && curr.action !== 'Outro') {
         const diffH = (next.eventTime - curr.eventTime) / (3600*1000);
-        // If current was "resolved" and next happened within 48h
-        if(curr.action !== 'Outro' && diffH < 48 && diffH > 0.1) {
-             // Check if same alarm type
-             if(curr.alarm === next.alarm){
-               suggestions.push(`<b>Reparo Inefetivo:</b> O ativo <b>${Z.escape(asset)}</b> voltou a falhar (${Z.escape(next.alarm)}) ${diffH.toFixed(1)}h após a ação "${curr.action}". Ação de campo recomendada.`);
-               break;
-             }
+        if(diffH < 24 && diffH > 0.05 && curr.alarm === next.alarm){
+          insights.push({
+            type: 'ineffective',
+            level: 'medium',
+            html: `<b>Reparo Inefetivo:</b> O ativo <b>${Z.escape(asset)}</b> falhou novamente (${curr.alarm}) apenas ${diffH.toFixed(1)}h após a ação "${curr.action}". Necessário escalonamento.`
+          });
+          break;
         }
       }
     }
 
-    // 4. Chronic Issues (Keywords)
-    const keywords = [
-      {word: 'energy', label: 'Energia', advice: 'bancos de bateria/retificadores'},
-      {word: 'temperature', label: 'Temperatura', advice: 'ar-condicionado/fans'},
-      {word: 'crc', label: 'Erros Físicos (CRC)', advice: 'cabeamento/SFP'},
-      {word: 'duplex', label: 'Duplex Mismatch', advice: 'autonegociação'}
-    ];
-
-    // Check all text for this asset
+    // 5. Specific Keywords (Vivo, Fibra, CRC)
     const fullText = events.map(e => (e.short+' '+e.closeNotes).toLowerCase()).join(' ');
-    keywords.forEach(kw => {
-      const count = (fullText.match(new RegExp(kw.word, 'g')) || []).length;
-      if(count >= 2) {
-        suggestions.push(`<b>Sintoma Crônico (${kw.label}):</b> Detectado ${count}x no ativo <b>${Z.escape(asset)}</b>. Verificar ${kw.advice}.`);
-      }
-    });
+    if(fullText.includes('crc') || fullText.includes('fcs error')){
+       insights.push({type:'physical', level:'medium', html:`<b>Erros Físicos:</b> O ativo <b>${Z.escape(asset)}</b> apresenta erros de CRC/FCS. Verifique cabeamento, conectores e módulos SFP.`});
+    }
+    if(fullText.includes('high temperature') || fullText.includes('temperatura alta')){
+       insights.push({type:'env', level:'medium', html:`<b>Temperatura Alta:</b> O ativo <b>${Z.escape(asset)}</b> reportou superaquecimento. Verifique ar-condicionado e ventoinhas.`});
+    }
   });
 
-  // Prioritize suggestions: Flapping > Ineffective > Chronic > Volume
-  const score = (s) => {
-    if(s.includes('Instabilidade')) return 4;
-    if(s.includes('Reparo Inefetivo')) return 3;
-    if(s.includes('Sintoma Crônico')) return 2;
-    return 1;
+  // Sort by severity
+  const score = (x) => {
+    if(x.type === 'mass') return 100;
+    if(x.type === 'flapping') return 80;
+    if(x.type === 'chronic') return 60;
+    return 10;
   };
 
-  return suggestions.sort((a,b) => score(b) - score(a)).slice(0, 8);
+  return insights.sort((a,b) => score(b) - score(a)).slice(0, 10).map(x=>x.html);
 }
 
 /* ====== FMDS Report Logic ====== */
@@ -1113,38 +1196,45 @@ function render(){
   MODE_DEDUP = document.getElementById('dedupToggle').checked;
   document.getElementById('modeLabel').textContent = MODE_DEDUP ? 'Deduplicado' : 'Tickets';
 
-  const base = MODE_DEDUP ? deduplicate(RAW) : RAW.slice();
+  // 1. Compute Cluster Map on RAW (global context)
+  CLUSTER_MAP = computeClusters(RAW);
 
-  // Re-compute clusters on base set (so filtering doesn't shift clusters weirdly,
-  // though optimally should be on RAW, but base is fine)
-  CLUSTER_MAP = computeClusters(base);
-
-  // Apply filters
+  // 2. Apply Filters to create VIEW_RAW
   const fStart = FILTER.start ? new Date(FILTER.start+'T00:00:00') : null;
   const fEnd = FILTER.end ? new Date(FILTER.end+'T23:59:59') : null;
 
-  VIEW = base.filter(r=>{
+  const VIEW_RAW = RAW.filter(r=>{
     const text = (r.number+' '+r.alarm+' '+r.action+' '+(r.closeNotes||'')+' '+(r.short||'')).toLowerCase();
     const okQ = !FILTER.q || text.includes(FILTER.q);
 
-    // Cluster-aware alarm filter
     const myCluster = CLUSTER_MAP.get(r.alarm) || r.alarm;
     const okA = !FILTER.alarm || myCluster===FILTER.alarm;
 
     const okR = !FILTER.action || r.action===FILTER.action;
     const okAsset = !FILTER.asset || r.asset===FILTER.asset;
     const okMatrix = !FILTER.matrix || (r.problema===FILTER.matrix.p && r.solucao===FILTER.matrix.s);
+    const okPrio = !FILTER.priorityOnly || (r.tags && r.tags.length > 0);
 
     let okDate = true;
     if(r.eventTime){
       if(fStart && r.eventTime < fStart) okDate = false;
       if(fEnd && r.eventTime > fEnd) okDate = false;
     }
-    return okQ && okA && okR && okAsset && okMatrix && okDate;
+    return okQ && okA && okR && okAsset && okMatrix && okDate && okPrio;
   });
+
+  // 3. Deduplicate if needed to create VIEW (for table/charts)
+  VIEW = MODE_DEDUP ? deduplicate(VIEW_RAW) : VIEW_RAW;
+
+  // 4. Run Smart Insights on VIEW_RAW (always full resolution)
+  const suggestions = analyzeSmartPatterns(VIEW_RAW);
+  const prbEl = document.getElementById('prbList');
+  if(!suggestions.length) prbEl.innerHTML = '<span class="muted">Nenhum padrão crítico detectado para o filtro atual.</span>';
+  else prbEl.innerHTML = suggestions.map(s=>`<div class="callout" style="border-left-color:var(--warn);background:rgba(240,179,35,.1)">${s}</div>`).join('');
 
   // Metrics
   const total = VIEW.length;
+  const prioCount = VIEW.filter(x => x.tags && x.tags.length > 0).length;
   const slaRate = total ? (VIEW.filter(x=>x.madeSla).length/total)*100 : 0;
   const mttrs = VIEW.map(r=>r.mttrSec).filter(x=>x!=null);
   const mttrAvg = Z.mean(mttrs);
@@ -1172,6 +1262,7 @@ function render(){
     <b>Principais achados (filtro atual):</b>
     <ul>
       <li>Total: <b>${total}</b> (${MODE_DEDUP?'eventos deduplicados':'tickets'})</li>
+      <li>Prioritários (Tags): <b class="warnTxt">${prioCount}</b></li>
       <li>Período: <b>${first?Z.fmtDT(first):'—'}</b> até <b>${last?Z.fmtDT(last):'—'}</b></li>
       <li>SLA: <b class="okTxt">${slaRate.toFixed(0)}%</b></li>
       <li>Top alarme: <b>${topAlarm}</b></li>
@@ -1370,19 +1461,13 @@ function render(){
     }
   });
 
-  // PRB Suggestions
-  const suggestions = analyzeProactivePRB(VIEW);
-  const prbEl = document.getElementById('prbList');
-  if(!suggestions.length) prbEl.innerHTML = '<span class="muted">Nenhuma sugestão encontrada para o filtro atual.</span>';
-  else prbEl.innerHTML = suggestions.map(s=>`<div class="callout" style="border-left-color:var(--warn);background:rgba(240,179,35,.1)">${s}</div>`).join('');
-
   // Filters selects - Populate fAlarm with CLUSTERS, not raw
-  fillSelect('fAlarm', uniq([...new Set(base.map(x=>CLUSTER_MAP.get(x.alarm)||x.alarm))]));
-  fillSelect('fRes', uniq(base.map(x=>x.action)));
+  fillSelect('fAlarm', uniq([...new Set(RAW.map(x=>CLUSTER_MAP.get(x.alarm)||x.alarm))]));
+  fillSelect('fRes', uniq(RAW.map(x=>x.action)));
 
   // Set date inputs boundaries if empty
-  if(!FILTER.start && !FILTER.end && base.length){
-    const times = base.filter(x=>x.eventTime).map(x=>x.eventTime.getTime());
+  if(!FILTER.start && !FILTER.end && RAW.length){
+    const times = RAW.filter(x=>x.eventTime).map(x=>x.eventTime.getTime());
     if(times.length){
       const minT = new Date(Math.min(...times));
       const maxT = new Date(Math.max(...times));
@@ -1435,8 +1520,14 @@ function renderTable(rows){
     const tr = document.createElement('tr');
     const zlink = r.zabbix?.url ? `<a href="${r.zabbix.url}" target="_blank">abrir</a>` : '';
     const notes = Z.compact(r.closeNotes, 240);
+    const badges = (r.tags||[]).map(t=>`<span class="badge" style="margin:0 2px;padding:2px 6px;color:var(--warn);border-color:var(--warn)">${t}</span>`).join('');
+
     tr.innerHTML = `
-      <td class="mono">${r.number}${r._tickets && r._tickets.length>1 ? `<div class="small">Agrupa: ${r._tickets.join(', ')}</div>`:''}</td>
+      <td class="mono">
+        ${r.number}
+        ${badges ? '<div>'+badges+'</div>' : ''}
+        ${r._tickets && r._tickets.length>1 ? `<div class="small">Agrupa: ${r._tickets.join(', ')}</div>`:''}
+      </td>
       <td class="mono">${r.eventTime?Z.fmtDT(r.eventTime):''}<div class="small">${r.month||''}</div></td>
       <td>${r.alarm}</td>
       <td>${r.action}</td>
@@ -1458,7 +1549,7 @@ function syncControls(){
 }
 
 function clearFilters(){
-  FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', matrix:null };
+  FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', matrix:null, priorityOnly:false };
   syncControls();
   render();
 }
@@ -1554,6 +1645,7 @@ async function handleFile(file){
 });
 
 document.getElementById('dedupToggle').addEventListener('change', ()=>render());
+document.getElementById('priorityToggle').addEventListener('change', (e)=>{ FILTER.priorityOnly=e.target.checked; render(); });
 document.getElementById('clearFilter').addEventListener('click', ()=>clearFilters());
 document.getElementById('exportBtn').addEventListener('click', ()=>exportCSV());
 document.getElementById('printBtn').addEventListener('click', ()=>window.print());
