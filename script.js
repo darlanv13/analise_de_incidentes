@@ -175,7 +175,7 @@ function buildMatrixData(matrix, rowLabels, colLabels){
 /* ====== State ====== */
 let RAW = [];       // tickets raw rows
 let VIEW = [];      // after dedup and filters
-let FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', region:'', matrix:null, priorityOnly:false };
+let FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', region:'', matrix:null, priorityOnly:false, groupedOnly:false };
 let CLUSTER_MAP = new Map(); // original -> leader
 let MODE_DEDUP = true;
 
@@ -815,6 +815,10 @@ function render(){
   // 3. Deduplicate if needed to create VIEW (for table/charts)
   VIEW = MODE_DEDUP ? deduplicate(VIEW_RAW) : VIEW_RAW;
 
+  if(FILTER.groupedOnly){
+    VIEW = VIEW.filter(r => r._count && r._count > 1);
+  }
+
   // 4. Run Smart Insights on VIEW_RAW (always full resolution)
   const suggestions = analyzeSmartPatterns(VIEW_RAW);
   const prbEl = document.getElementById('prbList');
@@ -1168,7 +1172,7 @@ function syncControls(){
 }
 
 function clearFilters(){
-  FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', region:'', matrix:null, priorityOnly:false };
+  FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', region:'', matrix:null, priorityOnly:false, groupedOnly:false };
   syncControls();
   render();
 }
@@ -1312,6 +1316,7 @@ async function handleFile(file){
 
 document.getElementById('dedupToggle').addEventListener('change', ()=>render());
 document.getElementById('priorityToggle').addEventListener('change', (e)=>{ FILTER.priorityOnly=e.target.checked; render(); });
+document.getElementById('groupedToggle').addEventListener('change', (e)=>{ FILTER.groupedOnly=e.target.checked; render(); });
 document.getElementById('clearFilter').addEventListener('click', ()=>clearFilters());
 document.getElementById('exportBtn').addEventListener('click', ()=>exportCSV());
 document.getElementById('printBtn').addEventListener('click', ()=>window.print());
