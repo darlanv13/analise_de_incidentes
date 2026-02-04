@@ -1,0 +1,44 @@
+{
+  "records": [
+    {
+      "number": "INC001",
+      "short_description": "Link Down at Site A - CRITICAL",
+      "description": "Link Down at Site A",
+      "work_notes": "Checking fiber...",
+      "opened_at": "2023-10-01 10:00:00"
+    },
+    {
+      "number": "INC002",
+      "short_description": "Link Down at Site A - CRITICAL",
+      "description": "Link Down at Site A",
+      "work_notes": "Still checking...",
+      "opened_at": "2023-10-01 10:05:00"
+    },
+    {
+      "number": "INC003",
+      "short_description": "Link Down at Site A - CRITICAL",
+      "description": "Link Down at Site A",
+      "work_notes": "Resolved.",
+      "opened_at": "2023-10-01 10:10:00"
+    },
+    {
+      "number": "INC_OT",
+      "short_description": "OT System Failure",
+      "description": "OT system is down",
+      "opened_at": "2023-10-01 12:00:00"
+    },
+    {
+      "number": "INC_NORTE",
+      "short_description": "Power Failure at CARAJAS",
+      "description": "Power failure",
+      "opened_at": "2023-10-02 10:00:00"
+    },
+    {
+      "number": "INC_TAG",
+      "short_description": "Fiber Cut",
+      "description": "Fiber cut",
+      "work_notes": "Detected rompimento de fibra otica in the field.",
+      "opened_at": "2023-10-03 10:00:00"
+    }
+  ]
+}
