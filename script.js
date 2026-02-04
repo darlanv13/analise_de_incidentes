@@ -192,6 +192,13 @@ const PRIORITY_KEYWORDS = [
   { term: 'it |',     label: 'IT',        source: 'short' },
   { term: 'it|',      label: 'IT',        source: 'short' },
   
+  // Locations
+  { term: 'sao luis',    label: 'São Luís',    source: 'short' },
+  { term: 'belem',       label: 'Belém',       source: 'short' },
+  { term: 's11d',        label: 'S11D',        source: 'short' },
+  { term: 'serra norte', label: 'Serra Norte', source: 'short' },
+  { term: 'base metal',  label: 'Base Metal',  source: 'short' },
+
   // Work Notes triggers (will check closeNotes or raw work_notes if added)
   { term: 'fibra optica', label: 'Fibra Óptica', source: 'notes' },
   { term: 'fibra ótica',  label: 'Fibra Óptica', source: 'notes' },
@@ -220,7 +227,10 @@ function detectPriorityTags(short, notes){
 function classifyRegion(text) {
   if (!text) return 'OUTROS';
   const t = text.toUpperCase();
-  const northKeywords = ['CARAJAS', 'SOSSEGO', 'CURIONOPOLIS', 'PARAUAPEBAS', 'SERRA LESTE'];
+  const northKeywords = [
+    'CARAJAS', 'SOSSEGO', 'CURIONOPOLIS', 'PARAUAPEBAS', 'SERRA LESTE',
+    'SAO LUIS', 'BELEM', 'S11D', 'SERRA NORTE', 'BASE METAL'
+  ];
   if (northKeywords.some(k => t.includes(k))) return 'NORTE';
   return 'OUTROS';
 }
