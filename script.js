@@ -65,18 +65,23 @@ function extractFailureTime(text){
   const [_,y,mo,d,hh,mm,ss]=m;
   return new Date(`${y}-${mo}-${d}T${hh}:${mm}:${ss}`);
 }
-function extractResolvedInSec(text){
-  // "Problem has been resolved in 3d 4h 39m 59s" or "6h 50m 0s" etc.
+function parseSimpleDuration(text) {
   if(!text || typeof text !== 'string') return null;
-  const m = text.match(/Problem has been resolved in\s+((?:\d+d\s*)?(?:\d+h\s*)?(?:\d+m\s*)?(?:\d+s)?)/i);
-  if(!m) return null;
-  const chunk = m[1];
+  const chunk = text.trim();
   let sec=0;
   const md = chunk.match(/(\d+)d/); if(md) sec += parseInt(md[1])*86400;
   const mh = chunk.match(/(\d+)h/); if(mh) sec += parseInt(mh[1])*3600;
   const mm = chunk.match(/(\d+)m/); if(mm) sec += parseInt(mm[1])*60;
   const ms = chunk.match(/(\d+)s/); if(ms) sec += parseInt(ms[1]);
   return sec || null;
+}
+
+function extractResolvedInSec(text){
+  // "Problem has been resolved in 3d 4h 39m 59s" or "6h 50m 0s" etc.
+  if(!text || typeof text !== 'string') return null;
+  const m = text.match(/Problem has been resolved in\s+((?:\d+d\s*)?(?:\d+h\s*)?(?:\d+m\s*)?(?:\d+s)?)/i);
+  if(m) return parseSimpleDuration(m[1]);
+  return null;
 }
 function extractZabbixLink(text){
   if(!text || typeof text !== 'string') return null;
@@ -240,7 +245,9 @@ function buildRows(records){
     const eventTime = ft || opened || workStart || closed || null;
 
     // MTTR seconds: prefer Zabbix resolved-in
-    const zSec = extractResolvedInSec(ttn) || extractResolvedInSec(tte) || extractResolvedInSec(desc);
+    let zSec = extractResolvedInSec(ttn) || extractResolvedInSec(tte) || extractResolvedInSec(desc);
+    if(r._resolved_duration) zSec = parseSimpleDuration(r._resolved_duration) || zSec;
+
     let mttrSec = zSec;
     if(mttrSec == null){
       if(workStart && workEnd) mttrSec = Math.round((workEnd-workStart)/1000);
@@ -252,7 +259,7 @@ function buildRows(records){
     const action = classifyResolution(closeNotes);
     const link = extractZabbixLink(desc) || extractZabbixLink(ttn) || extractZabbixLink(tte);
     const zpid = extractProblemId(desc) || extractProblemId(ttn) || extractProblemId(tte);
-    const asset = extractAsset(sd) || extractAsset(desc) || extractAsset(ttn) || extractAsset(tte) || 'Desconhecido';
+    const asset = r._asset_explicit || extractAsset(sd) || extractAsset(desc) || extractAsset(ttn) || extractAsset(tte) || 'Desconhecido';
 
     const fields = parseCloseNotesFields(closeNotes);
     const problema = fields['Problema'] || '';
@@ -1185,9 +1192,40 @@ function exportCSV(){
 }
 
 /* ===== Init ===== */
+function normalizeRecords(records) {
+  if (!records || !records.length) return [];
+
+  // Check if it's the Portuguese format
+  const isPT = 'Número' in records[0] || 'Descrição resumida' in records[0];
+
+  if (!isPT) return records;
+
+  return records.map(r => {
+    if(!r) return {};
+    return {
+      number: r['Número'],
+      short_description: r['Descrição resumida'],
+      description: (r['Descrição'] || '') + '\nEquipment: ' + (r['IC Impactado'] || ''),
+      opened_at: r['Aberto'],
+      _resolved_duration: r['Tempo para resolução'],
+      impact: (r['Criticidade do Ativo'] || '').split(' - ')[0],
+      urgency: (r['Criticidade do Ativo'] || '').split(' - ')[0],
+      _asset_explicit: r['IC Impactado'],
+      close_notes: '',
+      work_notes: '',
+      u_vale_slm_ttn_notes: '',
+      u_vale_slm_tte_notes: '',
+      made_sla: '',
+      zabbix_problem_id: '',
+      zabbix: null
+    };
+  });
+}
+
 function loadFromJSON(json){
   const records = Array.isArray(json) ? json : (json.records || []);
-  RAW = buildRows(records);
+  const norm = normalizeRecords(records);
+  RAW = buildRows(norm);
   clearFilters();
 }
 
