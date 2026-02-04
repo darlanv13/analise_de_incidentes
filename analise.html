@@ -120,6 +120,14 @@
       <div class="small">Extraído do close_notes (ex.: desbloqueio, reset, energia, normalizado).</div>
     </div>
 
+    <div class="card" style="grid-column:span 6">
+      <h2>Top 6 Recorrências (Clusters)</h2>
+      <div id="topClusters" style="overflow:auto;max-height:260px">
+        <span class="muted">Carregue o JSON para calcular clusters (Levenshtein + Tempo).</span>
+      </div>
+      <div class="small">Grupos baseados em descrição similar (< 30 dist) em janela de 24h.</div>
+    </div>
+
     <div class="card" style="grid-column:span 12">
       <h2>Anotações extraídas (close_notes)</h2>
       <div id="notesPanel" class="callout">
@@ -134,6 +142,8 @@
         <input id="q" type="search" placeholder="Buscar por INC, alarme, ação, texto…" />
         <select id="fAlarm"><option value="">Todos os alarmes</option></select>
         <select id="fRes"><option value="">Todas as ações</option></select>
+        <select id="fRegion"><option value="">Todas as Regiões</option></select>
+        <select id="fTags"><option value="">Todas as Tags</option></select>
       </div>
 
       <div class="tableWrap" style="margin-top:10px">
@@ -142,11 +152,11 @@
             <tr>
               <th>Incidente</th>
               <th>Data (evento)</th>
+              <th>Região</th>
               <th>Tipo de alarme</th>
               <th>Ação</th>
-              <th>Close code</th>
+              <th>Tags (Work Notes)</th>
               <th>Duração</th>
-              <th>Impacto/Urgência</th>
               <th>Anotações (trecho)</th>
             </tr>
           </thead>
@@ -211,8 +221,38 @@ function mean(arr){
   if(!a.length) return NaN;
   return a.reduce((s,x)=>s+x,0)/a.length;
 }
+function levenshtein(a, b) {
+  if(!a || !b) return (a||"").length + (b||"").length;
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) == a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
 
 /* ========= Classificadores ========= */
+function detectTags(text) {
+  if (!text) return [];
+  const t = text.toLowerCase();
+  const keywords = ["fibra otica", "operadora", "vivo", "wkve", "rompimento", "flaaping", "flapping", "icmp", "portdown"];
+  return keywords.filter(k => t.includes(k));
+}
+function getRegion(text) {
+  if (!text) return "Outra";
+  const t = text.toUpperCase();
+  if (t.includes("CARAJAS") || t.includes("SOSSEGO") || t.includes("CURIONOPOLIS") || t.includes("PARAUAPEBAS") || t.includes("SERRA LESTE")) {
+    return "NORTE";
+  }
+  return "Outra";
+}
 function classifyAlarm(text){
   text = (text||"").toLowerCase();
   if(text.includes("rx potency") || text.includes("air interface")) return "Baixa potência RX (< -60)";
@@ -340,8 +380,13 @@ function buildRows(records){
   // records: array de objetos do ServiceNow export
   return records.map(r=>{
     const sd = safeGet(r,"short_description","");
+
+    // Excluir OT
+    if (/\bOT\b/i.test(sd)) return null;
+
     const desc = safeGet(r,"description","");
     const closeNotes = safeGet(r,"close_notes","");
+    const workNotes = safeGet(r,"work_notes","");
     const wStart = parseDate(safeGet(r,"work_start",""));
     const wEnd   = parseDate(safeGet(r,"work_end",""));
     const opened = parseDate(safeGet(r,"opened_at",""));
@@ -362,6 +407,10 @@ function buildRows(records){
     const action = classifyResolution(closeNotes);
     const madeSla = String(safeGet(r,"made_sla","")).toLowerCase() === "true";
 
+    // Tags e Região
+    const tags = detectTags(workNotes);
+    const region = getRegion(sd);
+
     return {
       number: safeGet(r,"number",""),
       eventTime,
@@ -372,9 +421,51 @@ function buildRows(records){
       impact: safeGet(r,"impact",""),
       urgency: safeGet(r,"urgency",""),
       notes: closeNotes,
-      sd
+      sd,
+      tags,
+      region
     };
-  }).filter(x=>x.number);
+  }).filter(x=>x && x.number);
+}
+
+function findClusters(rows) {
+  // Ordenar por tempo
+  const sorted = rows.slice().sort((a,b)=>(a.eventTime||0)-(b.eventTime||0));
+  const clusters = []; // { primary: row, children: [row, row...] }
+  const assigned = new Set();
+
+  for (let i = 0; i < sorted.length; i++) {
+    const r1 = sorted[i];
+    if (assigned.has(r1.number)) continue;
+
+    // Novo cluster
+    const cluster = { primary: r1, children: [] };
+    clusters.push(cluster);
+    assigned.add(r1.number);
+
+    // Buscar similares nas próximas 48h (ou arbitrário)
+    for (let j = i + 1; j < sorted.length; j++) {
+      const r2 = sorted[j];
+      if (assigned.has(r2.number)) continue;
+
+      // Janela de tempo (ex: 24h = 86400000ms)
+      const diffTime = (r2.eventTime - r1.eventTime);
+      if (diffTime > 86400000) break; // otimização: se passou de 24h, para de olhar
+
+      // Similaridade
+      const dist = levenshtein(r1.sd, r2.sd);
+      const maxLen = Math.max(r1.sd.length, r2.sd.length);
+
+      // Se a distância for pequena em relação ao tamanho string (ex: < 35%)
+      // Evita agrupar coisas nada a ver se o texto for longo e o threshold fixo for alto
+      if (maxLen > 4 && dist < (maxLen * 0.35)) {
+        cluster.children.push(r2);
+        assigned.add(r2.number);
+      }
+    }
+  }
+  // Filtrar apenas clusters com recorrência (pelo menos 1 filho) para o Top 6
+  return clusters.filter(c=>c.children.length > 0).sort((a,b)=>b.children.length - a.children.length);
 }
 
 function groupByMonth(rows){
@@ -442,6 +533,20 @@ function renderKPIs(rows){
   document.getElementById("kpiMedian").textContent = isFinite(med) ? `${(med/60).toFixed(1)}h` : "—";
   document.getElementById("kpiTopAlarm").textContent = topAlarm;
 
+  // Top 6 Clusters
+  const clusters = findClusters(rows);
+  const top6 = clusters.slice(0, 6);
+  const clHTML = top6.map(c => `
+    <div style="margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:8px">
+      <div style="display:flex;justify-content:space-between">
+        <b>${c.primary.number}</b>
+        <span class="pill" style="color:var(--txt)">+${c.children.length} secundários</span>
+      </div>
+      <div class="small muted">${fmtDT(c.primary.eventTime)} • ${compact(c.primary.sd, 60)}</div>
+    </div>
+  `).join("");
+  document.getElementById("topClusters").innerHTML = clHTML || "<span class='muted'>Nenhum cluster encontrado.</span>";
+
   // resumo executivo
   const months = groupByMonth(rows);
   const first = rows.filter(r=>r.eventTime).sort((a,b)=>a.eventTime-b.eventTime)[0]?.eventTime;
@@ -455,6 +560,7 @@ function renderKPIs(rows){
       <li>SLA (made_sla): <b style="color:var(--ok)">${slaRate.toFixed(0)}%</b></li>
       <li>Alarme mais comum: <b>${top.labels[0]||"—"}</b></li>
       <li>Tempo mediano: <b>${isFinite(med)?(med/60).toFixed(1)+"h":"—"}</b></li>
+      <li>Clusters detectados: <b>${clusters.length}</b></li>
     </ul>
     <div class="small">Observação: classificação por palavras‑chave e extração por regex.</div>
   `;
@@ -480,6 +586,26 @@ function renderCharts(rows){
   // filtros
   fillSelect(document.getElementById("fAlarm"), t.labels);
   fillSelect(document.getElementById("fRes"), r.labels);
+
+  // Regiões e Tags
+  const regions = [...new Set(rows.map(r=>r.region).filter(x=>x))].sort();
+  const allTags = [...new Set(rows.flatMap(r=>r.tags))].sort();
+
+  const selReg = document.getElementById("fRegion");
+  selReg.innerHTML = `<option value="">Todas as Regiões</option>`;
+  regions.forEach(v=>{
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    selReg.appendChild(opt);
+  });
+
+  const selTag = document.getElementById("fTags");
+  selTag.innerHTML = `<option value="">Todas as Tags</option>`;
+  allTags.forEach(v=>{
+    const opt = document.createElement("option");
+    opt.value = v; opt.textContent = v;
+    selTag.appendChild(opt);
+  });
 }
 
 function renderNotes(rows){
@@ -510,14 +636,16 @@ function renderTable(rows){
   tb.innerHTML = "";
   rows.slice().sort((a,b)=>(b.eventTime||0)-(a.eventTime||0)).forEach(r=>{
     const tr = document.createElement("tr");
+    const tagsHtml = r.tags.map(t=>`<span class="badge" style="margin:2px;font-size:10px">${t}</span>`).join("");
+
     tr.innerHTML = `
       <td>${r.number}</td>
       <td>${r.eventTime ? fmtDT(r.eventTime) : ""}</td>
+      <td>${r.region}</td>
       <td>${r.alarm}</td>
       <td>${r.action}</td>
-      <td>${r.closeCode || ""}</td>
+      <td>${tagsHtml || "<span class='muted'>-</span>"}</td>
       <td>${fmtDur(r.durMin)}</td>
-      <td>${r.impact || ""}/${r.urgency || ""}</td>
       <td>${compact(r.notes, 240)}</td>
     `;
     tb.appendChild(tr);
@@ -529,6 +657,8 @@ function applyFilters(){
   const q = (document.getElementById("q").value || "").toLowerCase();
   const a = document.getElementById("fAlarm").value;
   const r = document.getElementById("fRes").value;
+  const reg = document.getElementById("fRegion").value;
+  const tag = document.getElementById("fTags").value;
   const rows = CURRENT.rows;
 
   const filtered = rows.filter(x=>{
@@ -536,7 +666,9 @@ function applyFilters(){
     const okQ = !q || text.includes(q);
     const okA = !a || x.alarm === a;
     const okR = !r || x.action === r;
-    return okQ && okA && okR;
+    const okReg = !reg || x.region === reg;
+    const okTag = !tag || x.tags.includes(tag);
+    return okQ && okA && okR && okReg && okTag;
   });
 
   renderTable(filtered);
@@ -569,7 +701,7 @@ document.getElementById("loadBtn").addEventListener("click", async ()=>{
   renderTable(rows);
 
   // liga filtros
-  ["q","fAlarm","fRes"].forEach(id=>{
+  ["q","fAlarm","fRes","fRegion","fTags"].forEach(id=>{
     document.getElementById(id).addEventListener("input", applyFilters);
     document.getElementById(id).addEventListener("change", applyFilters);
   });
