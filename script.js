@@ -2,7 +2,9 @@
 const Z = {
   safe: (o,k,d='') => (o && o[k] != null) ? o[k] : d,
   parseDate: (s) => {
-    if(!s || typeof s !== 'string') return null;
+    if(!s) return null;
+    if(s instanceof Date) return isNaN(s) ? null : s;
+    if(typeof s !== 'string') return null;
     const t = s.replace(' ', 'T');
     const d = new Date(t);
     return isNaN(d) ? null : d;
@@ -1216,16 +1218,29 @@ fileInput.addEventListener('change', () => {
 });
 
 async function handleFile(file){
-  if(!file.name.endsWith('.json')){ alert('Por favor, envie um arquivo .json'); return; }
   dropZone.textContent = `Carregando ${file.name}...`;
   try {
-    const text = await file.text();
-    const json = JSON.parse(text);
+    let json;
+    if(file.name.toLowerCase().endsWith('.json')){
+      const text = await file.text();
+      json = JSON.parse(text);
+    } else if(file.name.toLowerCase().endsWith('.xlsx')){
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data);
+      const firstSheet = workbook.SheetNames[0];
+      // cellDates: true ensures dates are parsed as JS Date objects, which Z.parseDate now handles
+      json = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheet], { cellDates: true, defval: '' });
+    } else {
+      alert('Por favor, envie um arquivo .json ou .xlsx');
+      dropZone.textContent = 'Formato inválido.';
+      return;
+    }
+
     loadFromJSON(json);
     dropZone.innerHTML = `Arquivo <b>${Z.escape(file.name)}</b> carregado com sucesso!`;
   } catch(e){
     console.error(e);
-    alert('Erro ao ler JSON. Verifique o formato.');
+    alert('Erro ao ler arquivo. Verifique o formato.');
     dropZone.textContent = 'Erro. Tente novamente.';
   }
 }

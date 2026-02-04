@@ -8,6 +8,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-matrix@2.0.1/dist/chartjs-chart-matrix.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -27,9 +28,9 @@
       <div class="toolbar" style="margin-top:12px">
         <div id="dropZone" class="drop-zone">
           <div style="font-size:16px;font-weight:600">📂 Upload de Dados</div>
-          <div style="font-size:13px">Arraste o arquivo <b>incident.json</b> aqui ou clique para selecionar</div>
+          <div style="font-size:13px">Arraste o arquivo <b>incident.json</b> ou <b>.xlsx</b> aqui ou clique para selecionar</div>
         </div>
-        <input id="file" type="file" accept=".json" style="display:none" />
+        <input id="file" type="file" accept=".json,.xlsx" style="display:none" />
         
         <button id="exportBtn" class="btnOk">Exportar CSV (filtro atual)</button>
         <button id="pdfBtn" class="btnOk">Gerar Relatório FMDS</button>
