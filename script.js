@@ -713,16 +713,7 @@ function renderFMDS(rows){
     </tr>`).join('');
 
   // 7. Repetibilidade Table (Proactive PRB format)
-  const suggestions = analyzeSmartPatterns(rows).slice(0,4); // Use same logic? existing code calls analyzeProactivePRB? Wait, analyzeProactivePRB is missing in my context, likely it was analyzeSmartPatterns.
-  // In read_file output, analyzeProactivePRB was not defined, but referenced in renderFMDS.
-  // Wait, in my read_file output (line 622), it calls analyzeProactivePRB(rows).
-  // But line 487 defines analyzeSmartPatterns.
-  // And line 656 calls analyzeSmartPatterns(VIEW_RAW).
-  // I suspect analyzeProactivePRB was renamed to analyzeSmartPatterns or I missed it.
-  // I will check if analyzeSmartPatterns returns strings or objects.
-  // analyzeSmartPatterns returns strings (HTML).
-  // In renderFMDS, it maps suggestions and matches <b> tags.
-  // So analyzeSmartPatterns is likely correct. I'll use analyzeSmartPatterns.
+  const suggestions = analyzeSmartPatterns(rows).slice(0,4);
   const tRep = document.getElementById('tFmdsRep');
   tRep.innerHTML = suggestions.map(s=>{
     // Asset is usually the second bold tag (Label is first)
