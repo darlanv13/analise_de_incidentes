@@ -65,18 +65,23 @@ function extractFailureTime(text){
   const [_,y,mo,d,hh,mm,ss]=m;
   return new Date(`${y}-${mo}-${d}T${hh}:${mm}:${ss}`);
 }
-function extractResolvedInSec(text){
-  // "Problem has been resolved in 3d 4h 39m 59s" or "6h 50m 0s" etc.
+function parseSimpleDuration(text) {
   if(!text || typeof text !== 'string') return null;
-  const m = text.match(/Problem has been resolved in\s+((?:\d+d\s*)?(?:\d+h\s*)?(?:\d+m\s*)?(?:\d+s)?)/i);
-  if(!m) return null;
-  const chunk = m[1];
+  const chunk = text.trim();
   let sec=0;
   const md = chunk.match(/(\d+)d/); if(md) sec += parseInt(md[1])*86400;
   const mh = chunk.match(/(\d+)h/); if(mh) sec += parseInt(mh[1])*3600;
   const mm = chunk.match(/(\d+)m/); if(mm) sec += parseInt(mm[1])*60;
   const ms = chunk.match(/(\d+)s/); if(ms) sec += parseInt(ms[1]);
   return sec || null;
+}
+
+function extractResolvedInSec(text){
+  // "Problem has been resolved in 3d 4h 39m 59s" or "6h 50m 0s" etc.
+  if(!text || typeof text !== 'string') return null;
+  const m = text.match(/Problem has been resolved in\s+((?:\d+d\s*)?(?:\d+h\s*)?(?:\d+m\s*)?(?:\d+s)?)/i);
+  if(m) return parseSimpleDuration(m[1]);
+  return null;
 }
 function extractZabbixLink(text){
   if(!text || typeof text !== 'string') return null;
@@ -170,7 +175,7 @@ function buildMatrixData(matrix, rowLabels, colLabels){
 /* ====== State ====== */
 let RAW = [];       // tickets raw rows
 let VIEW = [];      // after dedup and filters
-let FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', region:'', matrix:null, priorityOnly:false };
+let FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', region:'', matrix:null, priorityOnly:false, groupedOnly:false };
 let CLUSTER_MAP = new Map(); // original -> leader
 let MODE_DEDUP = true;
 
@@ -187,6 +192,13 @@ const PRIORITY_KEYWORDS = [
   { term: 'it |',     label: 'IT',        source: 'short' },
   { term: 'it|',      label: 'IT',        source: 'short' },
   
+  // Locations
+  { term: 'sao luis',    label: 'São Luís',    source: 'short' },
+  { term: 'belem',       label: 'Belém',       source: 'short' },
+  { term: 's11d',        label: 'S11D',        source: 'short' },
+  { term: 'serra norte', label: 'Serra Norte', source: 'short' },
+  { term: 'base metal',  label: 'Base Metal',  source: 'short' },
+
   // Work Notes triggers (will check closeNotes or raw work_notes if added)
   { term: 'fibra optica', label: 'Fibra Óptica', source: 'notes' },
   { term: 'fibra ótica',  label: 'Fibra Óptica', source: 'notes' },
@@ -215,7 +227,10 @@ function detectPriorityTags(short, notes){
 function classifyRegion(text) {
   if (!text) return 'OUTROS';
   const t = text.toUpperCase();
-  const northKeywords = ['CARAJAS', 'SOSSEGO', 'CURIONOPOLIS', 'PARAUAPEBAS', 'SERRA LESTE'];
+  const northKeywords = [
+    'CARAJAS', 'SOSSEGO', 'CURIONOPOLIS', 'PARAUAPEBAS', 'SERRA LESTE',
+    'SAO LUIS', 'BELEM', 'S11D', 'SERRA NORTE', 'BASE METAL'
+  ];
   if (northKeywords.some(k => t.includes(k))) return 'NORTE';
   return 'OUTROS';
 }
@@ -240,7 +255,9 @@ function buildRows(records){
     const eventTime = ft || opened || workStart || closed || null;
 
     // MTTR seconds: prefer Zabbix resolved-in
-    const zSec = extractResolvedInSec(ttn) || extractResolvedInSec(tte) || extractResolvedInSec(desc);
+    let zSec = extractResolvedInSec(ttn) || extractResolvedInSec(tte) || extractResolvedInSec(desc);
+    if(r._resolved_duration) zSec = parseSimpleDuration(r._resolved_duration) || zSec;
+
     let mttrSec = zSec;
     if(mttrSec == null){
       if(workStart && workEnd) mttrSec = Math.round((workEnd-workStart)/1000);
@@ -252,7 +269,7 @@ function buildRows(records){
     const action = classifyResolution(closeNotes);
     const link = extractZabbixLink(desc) || extractZabbixLink(ttn) || extractZabbixLink(tte);
     const zpid = extractProblemId(desc) || extractProblemId(ttn) || extractProblemId(tte);
-    const asset = extractAsset(sd) || extractAsset(desc) || extractAsset(ttn) || extractAsset(tte) || 'Desconhecido';
+    const asset = r._asset_explicit || extractAsset(sd) || extractAsset(desc) || extractAsset(ttn) || extractAsset(tte) || 'Desconhecido';
 
     const fields = parseCloseNotesFields(closeNotes);
     const problema = fields['Problema'] || '';
@@ -265,8 +282,12 @@ function buildRows(records){
     // Region Classification
     const region = classifyRegion(sd);
 
+    const childCount = parseInt(Z.safe(r,'child_incidents','0')) || 0;
+
     return {
       number: Z.safe(r,'number',''),
+      category: Z.safe(r,'category',''),
+      childCount,
       asset,
       eventTime,
       month: eventTime ? `${eventTime.getFullYear()}-${String(eventTime.getMonth()+1).padStart(2,'0')}` : '',
@@ -290,6 +311,12 @@ function buildRows(records){
     if(!x.number) return false;
     const s = (x.short || '');
     if(/\bOT\s*[|]?\b/i.test(s)) return false; 
+
+    // Filter by Category: Must be Network if category is present
+    // (Allows empty category to pass to be safe, or strict? "tudo ... que não é Network")
+    // Let's be strict if the field exists.
+    if(x.category && x.category !== 'Network') return false;
+
     return true;
   });
 }
@@ -775,7 +802,7 @@ function render(){
   const fEnd = FILTER.end ? new Date(FILTER.end+'T23:59:59') : null;
 
   const VIEW_RAW = RAW.filter(r=>{
-    const text = (r.number+' '+r.alarm+' '+r.action+' '+(r.closeNotes||'')+' '+(r.short||'')).toLowerCase();
+    const text = (r.number+' '+r.alarm+' '+r.action+' '+(r.closeNotes||'')+' '+(r.short||'')+' '+(r.asset||'')).toLowerCase();
     const okQ = !FILTER.q || text.includes(FILTER.q);
     
     const myCluster = CLUSTER_MAP.get(r.alarm) || r.alarm;
@@ -797,6 +824,11 @@ function render(){
 
   // 3. Deduplicate if needed to create VIEW (for table/charts)
   VIEW = MODE_DEDUP ? deduplicate(VIEW_RAW) : VIEW_RAW;
+
+  if(FILTER.groupedOnly){
+    // Filter by calculated group size OR raw child_incidents field
+    VIEW = VIEW.filter(r => (r._count && r._count > 1) || (r.childCount && r.childCount > 0));
+  }
 
   // 4. Run Smart Insights on VIEW_RAW (always full resolution)
   const suggestions = analyzeSmartPatterns(VIEW_RAW);
@@ -1105,9 +1137,10 @@ function renderTimeline(rows){
   if(!items.length){ el.innerHTML = '<span class="muted">Sem dados.</span>'; return; }
   const html = items.map(r=>{
     const ticketInfo = (r._tickets && r._tickets.length>1) ? ` <span class="pill warn" title="Tickets agrupados">${r._tickets.length} tickets</span>` : '';
+    const childInfo = (r.childCount > 0) ? ` <span class="pill" title="Incidentes Secundários (Child)">${r.childCount} filhos</span>` : '';
     const z = r.zabbix?.url ? `<a href="${r.zabbix.url}" target="_blank">Zabbix</a>` : '';
     return `<div style="margin-bottom:8px">
-      <span class="mono">${Z.fmtDT(r.eventTime)}</span> — <b>${r.alarm}</b> — ${r.action} — <span class="mono">${r.number}</span>${ticketInfo}
+      <span class="mono">${Z.fmtDT(r.eventTime)}</span> — <b>${r.alarm}</b> — ${r.action} — <span class="mono">${r.number}</span>${ticketInfo}${childInfo}
       <span class="small" style="margin-left:8px">${Z.fmtDur(r.mttrSec)} ${z?(' • '+z):''}</span>
     </div>`;
   }).join('');
@@ -1128,6 +1161,7 @@ function renderTable(rows){
         ${r.number}
         ${badges ? '<div>'+badges+'</div>' : ''}
         ${r._tickets && r._tickets.length>1 ? `<div class="small">Agrupa: ${r._tickets.join(', ')}</div>`:''}
+        ${r.childCount > 0 ? `<div class="small" style="color:var(--ok)"><b>${r.childCount}</b> incidentes filhos</div>`:''}
       </td>
       <td class="mono">${r.eventTime?Z.fmtDT(r.eventTime):''}<div class="small">${r.month||''}</div></td>
       <td>${r.alarm}</td>
@@ -1151,7 +1185,7 @@ function syncControls(){
 }
 
 function clearFilters(){
-  FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', region:'', matrix:null, priorityOnly:false };
+  FILTER = { q:'', alarm:'', action:'', start:'', end:'', asset:'', region:'', matrix:null, priorityOnly:false, groupedOnly:false };
   syncControls();
   render();
 }
@@ -1185,9 +1219,42 @@ function exportCSV(){
 }
 
 /* ===== Init ===== */
+function normalizeRecords(records) {
+  if (!records || !records.length) return [];
+
+  // Check if it's the Portuguese format
+  const isPT = 'Número' in records[0] || 'Descrição resumida' in records[0];
+
+  if (!isPT) return records;
+
+  return records.map(r => {
+    if(!r) return {};
+    return {
+      number: r['Número'],
+      short_description: r['Descrição resumida'],
+      description: (r['Descrição'] || '') + '\nEquipment: ' + (r['IC Impactado'] || ''),
+      opened_at: r['Aberto'],
+      _resolved_duration: r['Tempo para resolução'],
+      impact: (r['Criticidade do Ativo'] || '').split(' - ')[0],
+      urgency: (r['Criticidade do Ativo'] || '').split(' - ')[0],
+      _asset_explicit: r['IC Impactado'],
+      close_notes: '',
+      work_notes: '',
+      u_vale_slm_ttn_notes: '',
+      u_vale_slm_tte_notes: '',
+      made_sla: '',
+      zabbix_problem_id: '',
+      zabbix: null,
+      child_incidents: r['child_incidents'], // Pass through if present
+      category: r['category'] // Pass through category if present in source
+    };
+  });
+}
+
 function loadFromJSON(json){
   const records = Array.isArray(json) ? json : (json.records || []);
-  RAW = buildRows(records);
+  const norm = normalizeRecords(records);
+  RAW = buildRows(norm);
   clearFilters();
 }
 
@@ -1264,6 +1331,7 @@ async function handleFile(file){
 
 document.getElementById('dedupToggle').addEventListener('change', ()=>render());
 document.getElementById('priorityToggle').addEventListener('change', (e)=>{ FILTER.priorityOnly=e.target.checked; render(); });
+document.getElementById('groupedToggle').addEventListener('change', (e)=>{ FILTER.groupedOnly=e.target.checked; render(); });
 document.getElementById('clearFilter').addEventListener('click', ()=>clearFilters());
 document.getElementById('exportBtn').addEventListener('click', ()=>exportCSV());
 document.getElementById('printBtn').addEventListener('click', ()=>window.print());

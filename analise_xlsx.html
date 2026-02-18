@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Análise XLSX - Palavras-Chave</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    .highlight { background-color: rgba(240, 179, 35, 0.3); font-weight: bold; }
+    .keyword-tag { background: #d9534f; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.8em; margin-right: 4px; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Análise de Arquivo XLSX</h1>
+      <div class="subtitle">Busca por: flaaping, icmp, fibra, portdown</div>
+
+      <div class="toolbar" style="margin-top:12px">
+        <div id="dropZone" class="drop-zone">
+          <div style="font-size:16px;font-weight:600">📂 Upload XLSX</div>
+          <div style="font-size:13px">Arraste o arquivo aqui ou clique para selecionar</div>
+        </div>
+        <input id="file" type="file" accept=".xlsx" style="display:none" />
+        <button onclick="window.location.href='analise.html'" class="btnWarn">Voltar ao Dashboard</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Smart Insights -->
+    <div class="card" style="grid-column:span 12">
+      <h2>Insights Inteligentes & Sugestões PRB</h2>
+      <div id="smartList" class="small" style="display:flex;flex-direction:column;gap:8px;max-height:280px;overflow-y:auto">
+        <span class="muted">Carregue um arquivo para ver insights.</span>
+      </div>
+    </div>
+
+    <!-- Recurrence Analysis -->
+    <div class="card" style="grid-column:span 6">
+      <h2>Top Ativos Recorrentes</h2>
+      <div class="tableWrap">
+        <table id="tblRec">
+          <thead><tr><th>Ativo</th><th>Ocorrências</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Repeatability Analysis -->
+    <div class="card" style="grid-column:span 6">
+      <h2>Repetibilidade de Falhas (Recentes)</h2>
+      <div class="tableWrap">
+        <table id="tblRep">
+          <thead><tr><th>Ativo</th><th>Alarme</th><th>Ação</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Keywords Results -->
+    <div class="card" style="grid-column:span 12">
+      <div class="toolbar">
+        <h2 style="margin:0">Resultados da Busca (Keywords) <span id="countDisplay"></span></h2>
+        <button id="exportBtn" class="btnOk" style="display:none">Exportar CSV</button>
+      </div>
+
+      <div class="tableWrap" style="margin-top:10px">
+        <table id="tbl">
+          <thead>
+            <tr>
+              <th>Incidente</th>
+              <th>Data</th>
+              <th>Keywords Encontradas</th>
+              <th>Descrição</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td colspan="4" class="muted" style="text-align:center;padding:20px">Aguardando arquivo...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="script_xlsx.js"></script>
+</body>
+</html>
